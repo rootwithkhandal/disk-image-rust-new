@@ -125,7 +125,6 @@ impl DeviceBackend for LinuxBackend {
         }
 
         Ok(RawDevice {
-            path: path.to_string(),
             size,
             file,
         })
@@ -145,14 +144,13 @@ impl DeviceBackend for LinuxBackend {
         }
         Ok(())
     }
-}
 
-impl LinuxBackend {
-    #[allow(dead_code)]
-    pub fn is_root() -> bool {
+    fn is_privileged() -> bool {
         unsafe { libc::getuid() == 0 }
     }
 }
+
+
 
 impl AsRawFd for RawDevice {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {

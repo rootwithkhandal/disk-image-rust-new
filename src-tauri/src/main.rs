@@ -1,4 +1,4 @@
-// #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod acquisition;
 mod hasher;
@@ -9,8 +9,7 @@ mod error;
 mod platform;
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
-use acquisition::{AcquisitionConfig, BadSectorAction, ProgressEvent};
-use hasher::HashAlgorithm;
+use acquisition::{AcquisitionConfig, ProgressEvent};
 use output::CompressionFormat;
 use tauri::{AppHandle, Emitter, Manager, State};
 use std::sync::Mutex;
@@ -33,8 +32,8 @@ struct StartConfig {
     format_mode: String,
     hash_verification: String,
     block_size_kb: usize,
-    hash_algorithms: Vec<String>, // ["MD5", "SHA1", "SHA256", "SHA512"]
-    compression: String, // "None", "Gzip", "Zstd"
+    hash_algorithms: Vec<hasher::HashAlgorithm>,
+    compression: String,
     resume_mode: bool,
     split_size_mb: Option<usize>,
     read_verification: bool,
@@ -45,18 +44,7 @@ struct StartConfig {
 
 #[tauri::command]
 fn get_admin_status() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        crate::platform::windows::WindowsBackend::is_admin()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        crate::platform::linux::LinuxBackend::is_root()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        crate::platform::macos::MacosBackend::is_root()
-    }
+    ActiveBackend::is_privileged()
 }
 
 #[tauri::command]
@@ -118,6 +106,14 @@ fn clear_active_task(app_handle: &AppHandle) {
     *lock = None;
 }
 
+fn format_ext(mode: &str) -> &'static str {
+    if mode.contains("EX01") { "ex01" }
+    else if mode.contains("E01") { "e01" }
+    else if mode.contains("AFF") { "aff" }
+    else if mode.contains("SMART") { "smart" }
+    else { "dd" }
+}
+
 #[tauri::command]
 async fn start_acquisition(
     config_input: StartConfig,
@@ -152,17 +148,7 @@ async fn start_acquisition(
 
         log("[SYSTEM] Starting acquisition backend task...".to_string()).await;
 
-        let mut algos = Vec::new();
-        for algo_str in &config_input.hash_algorithms {
-            match algo_str.as_str() {
-                "MD5" => algos.push(HashAlgorithm::MD5),
-                "SHA1" => algos.push(HashAlgorithm::SHA1),
-                "SHA256" => algos.push(HashAlgorithm::SHA256),
-                "SHA512" => algos.push(HashAlgorithm::SHA512),
-                _ => {}
-            }
-        }
-
+        let algos = config_input.hash_algorithms.clone();
         if algos.is_empty() {
             let _ = tx.send(ProgressEvent::Error("At least one hash algorithm must be enabled.".to_string())).await;
             clear_active_task(&app_handle);
@@ -177,18 +163,7 @@ async fn start_acquisition(
 
         let mut dest_file_path = PathBuf::from(&config_input.dest_path);
         if dest_file_path.extension().is_none() && config_input.imaging_mode != "Logical" {
-            let ext = if config_input.format_mode.contains("E01") {
-                "e01"
-            } else if config_input.format_mode.contains("EX01") {
-                "ex01"
-            } else if config_input.format_mode.contains("AFF") {
-                "aff"
-            } else if config_input.format_mode.contains("SMART") {
-                "smart"
-            } else {
-                "dd"
-            };
-            dest_file_path.set_extension(ext);
+            dest_file_path.set_extension(format_ext(&config_input.format_mode));
         }
 
         let is_logical = config_input.imaging_mode == "Logical";
@@ -221,7 +196,6 @@ async fn start_acquisition(
         let config = AcquisitionConfig {
             hash_algorithms: algos.clone(),
             block_size: config_input.block_size_kb * 1024,
-            bad_sector_action: BadSectorAction::ZeroFill,
             split_size: split_size_bytes,
             compression,
             case_number: config_input.case_number.clone(),
@@ -237,7 +211,7 @@ async fn start_acquisition(
 
         let source_path = config_input.source_path.clone();
         log(format!("[ACQUISITION] Source Path: {}", source_path)).await;
-        log(format!("[ACQUISITION] Destination Path: {:?}", dest_file_path)).await;
+        log(format!("[ACQUISITION] Destination Path: {}", dest_file_path.display())).await;
 
         let start_time_utc = chrono::Utc::now();
 
@@ -264,7 +238,7 @@ async fn start_acquisition(
                         source_size: result.bytes_read,
                         source_model: "Logical Folder".to_string(),
                         source_serial: "N/A".to_string(),
-                        dest_file: format!("{:?}", dest_file_path),
+                        dest_file: dest_file_path.display().to_string(),
                         start_time: start_time_utc,
                         end_time: end_time_utc,
                         bad_sectors: 0,
@@ -359,19 +333,8 @@ async fn start_acquisition(
             };
 
             if start_offset == 0 {
-                let format_short = if config_input.format_mode.contains("E01") {
-                    "E01"
-                } else if config_input.format_mode.contains("EX01") {
-                    "EX01"
-                } else if config_input.format_mode.contains("AFF") {
-                    "AFF"
-                } else if config_input.format_mode.contains("SMART") {
-                    "SMART"
-                } else {
-                    "DD"
-                };
                 let _ = dest_writer.write_format_header(
-                    format_short,
+                    format_ext(&config_input.format_mode).to_uppercase().as_str(),
                     &config.case_number,
                     &config.examiner,
                     &config.evidence_id,
@@ -404,7 +367,7 @@ async fn start_acquisition(
                         source_size: size,
                         source_model: model,
                         source_serial: serial,
-                        dest_file: format!("{:?}", dest_file_path),
+                        dest_file: dest_file_path.display().to_string(),
                         start_time: start_time_utc,
                         end_time: end_time_utc,
                         bad_sectors: result.bad_sectors + bad_sectors_start,
@@ -422,7 +385,7 @@ async fn start_acquisition(
 
                     if config_input.digital_signature {
                         if let Ok(content) = std::fs::read_to_string(&report_path) {
-                            let sig = crate::hasher::generate_digital_signature(&content, &report_data.case_number);
+                            let sig = crate::hasher::generate_report_seal(&content, &report_data.case_number);
                             let sig_path = dest_file_path.with_extension("signature");
                             if let Ok(mut sig_file) = std::fs::File::create(sig_path) {
                                 use std::io::Write;

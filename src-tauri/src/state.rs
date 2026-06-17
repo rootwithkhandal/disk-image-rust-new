@@ -8,14 +8,8 @@ use crate::error::Result;
 pub struct CheckpointState {
     pub bytes_read: u64,
     pub bad_sectors: u64,
-    pub source_path: String,
-    pub dest_path: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub evidence_id: String,
-    pub notes: String,
     pub pre_hash: Option<String>,
-    pub imaging_mode: String,
-    pub format: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 impl CheckpointState {
@@ -26,7 +20,6 @@ impl CheckpointState {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut content = String::new();

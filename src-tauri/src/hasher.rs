@@ -2,8 +2,6 @@ use sha2::{Digest, Sha256, Sha512};
 use md5::Md5;
 use sha1::Sha1;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum HashAlgorithm {
@@ -13,88 +11,77 @@ pub enum HashAlgorithm {
     SHA512,
 }
 
-struct Worker {
-    tx: UnboundedSender<Vec<u8>>,
-    handle: JoinHandle<String>,
+impl std::fmt::Display for HashAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HashAlgorithm::MD5    => f.write_str("MD5"),
+            HashAlgorithm::SHA1   => f.write_str("SHA1"),
+            HashAlgorithm::SHA256 => f.write_str("SHA256"),
+            HashAlgorithm::SHA512 => f.write_str("SHA512"),
+        }
+    }
+}
+
+enum HasherInner {
+    MD5(Md5),
+    SHA1(Sha1),
+    SHA256(Sha256),
+    SHA512(Sha512),
+}
+
+impl HasherInner {
+    fn update(&mut self, data: &[u8]) {
+        match self {
+            HasherInner::MD5(h)    => h.update(data),
+            HasherInner::SHA1(h)   => h.update(data),
+            HasherInner::SHA256(h) => h.update(data),
+            HasherInner::SHA512(h) => h.update(data),
+        }
+    }
+    fn finalize(self) -> String {
+        match self {
+            HasherInner::MD5(h)    => hex::encode(h.finalize()),
+            HasherInner::SHA1(h)   => hex::encode(h.finalize()),
+            HasherInner::SHA256(h) => hex::encode(h.finalize()),
+            HasherInner::SHA512(h) => hex::encode(h.finalize()),
+        }
+    }
 }
 
 pub struct MultiHasher {
-    workers: HashMap<HashAlgorithm, Worker>,
+    hashers: Vec<(HashAlgorithm, HasherInner)>,
 }
 
 impl MultiHasher {
     pub fn new(algorithms: &[HashAlgorithm]) -> Self {
-        let mut workers = HashMap::new();
-
-        for algo in algorithms {
-            let (tx, mut rx) = unbounded_channel::<Vec<u8>>();
-            let algo_clone = *algo;
-            let handle = tokio::task::spawn_blocking(move || {
-                match algo_clone {
-                    HashAlgorithm::MD5 => {
-                        let mut h = Md5::new();
-                        while let Some(data) = rx.blocking_recv() {
-                            h.update(&data);
-                        }
-                        hex::encode(h.finalize())
-                    }
-                    HashAlgorithm::SHA1 => {
-                        let mut h = Sha1::new();
-                        while let Some(data) = rx.blocking_recv() {
-                            h.update(&data);
-                        }
-                        hex::encode(h.finalize())
-                    }
-                    HashAlgorithm::SHA256 => {
-                        let mut h = Sha256::new();
-                        while let Some(data) = rx.blocking_recv() {
-                            h.update(&data);
-                        }
-                        hex::encode(h.finalize())
-                    }
-                    HashAlgorithm::SHA512 => {
-                        let mut h = Sha512::new();
-                        while let Some(data) = rx.blocking_recv() {
-                            h.update(&data);
-                        }
-                        hex::encode(h.finalize())
-                    }
-                }
-            });
-
-            workers.insert(*algo, Worker { tx, handle });
-        }
-
-        Self { workers }
+        let hashers = algorithms.iter().map(|&algo| {
+            let inner = match algo {
+                HashAlgorithm::MD5    => HasherInner::MD5(Md5::new()),
+                HashAlgorithm::SHA1   => HasherInner::SHA1(Sha1::new()),
+                HashAlgorithm::SHA256 => HasherInner::SHA256(Sha256::new()),
+                HashAlgorithm::SHA512 => HasherInner::SHA512(Sha512::new()),
+            };
+            (algo, inner)
+        }).collect();
+        Self { hashers }
     }
 
     pub fn update(&mut self, data: &[u8]) {
-        let vec = data.to_vec();
-        for worker in self.workers.values() {
-            let _ = worker.tx.send(vec.clone());
+        for (_, h) in &mut self.hashers {
+            h.update(data);
         }
     }
 
-    pub async fn finalize(mut self) -> HashMap<HashAlgorithm, String> {
-        let mut results = HashMap::new();
-        let workers = std::mem::take(&mut self.workers);
-        for (algo, worker) in workers {
-            drop(worker.tx);
-            if let Ok(hash_str) = worker.handle.await {
-                results.insert(algo, hash_str);
-            }
-        }
-        results
+    pub fn finalize(self) -> HashMap<HashAlgorithm, String> {
+        self.hashers.into_iter().map(|(algo, h)| (algo, h.finalize())).collect()
     }
 }
 
-pub fn generate_digital_signature(report_content: &str, case_number: &str) -> String {
-    use sha2::{Digest, Sha256};
+// ponytail: keyed hash for tamper-evident report seal, not asymmetric signing.
+pub fn generate_report_seal(report_content: &str, case_number: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(report_content.as_bytes());
     hasher.update(case_number.as_bytes());
     hasher.update(b"FORGELENS-SECURE-FORENSIC-SIGNING-SALT-2026");
     hex::encode(hasher.finalize())
 }
-
-

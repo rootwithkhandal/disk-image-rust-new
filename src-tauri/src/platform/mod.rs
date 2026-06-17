@@ -26,11 +26,11 @@ pub trait DeviceBackend {
     fn enumerate_devices() -> Result<Vec<DeviceInfo>>;
     fn open_readonly(path: &str) -> Result<RawDevice>;
     fn enforce_write_block(device: &mut RawDevice) -> Result<()>;
+    fn is_privileged() -> bool;
 }
 
 // Struct to represent a Raw Device handle
 pub struct RawDevice {
-    pub path: String,
     pub size: u64,
     
     #[cfg(target_os = "windows")]

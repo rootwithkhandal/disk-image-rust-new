@@ -62,7 +62,6 @@ impl DeviceBackend for MacosBackend {
         let size = sector_count * sector_size as u64;
 
         Ok(RawDevice {
-            path: path.to_string(),
             size,
             file,
         })
@@ -71,14 +70,13 @@ impl DeviceBackend for MacosBackend {
     fn enforce_write_block(_device: &mut RawDevice) -> Result<()> {
         Ok(())
     }
-}
 
-impl MacosBackend {
-    #[allow(dead_code)]
-    pub fn is_root() -> bool {
+    fn is_privileged() -> bool {
         unsafe { libc::geteuid() == 0 }
     }
 }
+
+
 
 impl AsRawFd for RawDevice {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {

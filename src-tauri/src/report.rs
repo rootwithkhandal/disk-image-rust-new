@@ -57,14 +57,14 @@ pub fn generate_txt_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Result
         writeln!(file, "--------------------------------------------------")?;
         writeln!(file, "PRE-ACQUISITION HASHES")?;
         for (algo, hash_val) in &data.pre_hashes {
-            writeln!(file, "  {:?}: {}", algo, hash_val)?;
+            writeln!(file, "  {}: {}", algo, hash_val)?;
         }
     }
 
     writeln!(file, "--------------------------------------------------")?;
     writeln!(file, "VERIFICATION HASHES (POST-ACQUISITION)")?;
     for (algo, hash_val) in &data.hashes {
-        writeln!(file, "  {:?}: {}", algo, hash_val)?;
+        writeln!(file, "  {}: {}", algo, hash_val)?;
     }
 
     writeln!(file, "--------------------------------------------------")?;
@@ -76,9 +76,9 @@ pub fn generate_txt_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Result
         for (algo, post_hash) in &data.hashes {
             if let Some(pre_hash) = data.pre_hashes.get(algo) {
                 if pre_hash == post_hash {
-                    writeln!(file, "  {:?}: MATCHED (Integrity Confirmed)", algo)?;
+                    writeln!(file, "  {}: MATCHED (Integrity Confirmed)", algo)?;
                 } else {
-                    writeln!(file, "  {:?}: MISMATCHED (WARNING: Integrity Compromised!)", algo)?;
+                    writeln!(file, "  {}: MISMATCHED (WARNING: Integrity Compromised!)", algo)?;
                     verified = false;
                 }
             }
@@ -130,7 +130,7 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
     writeln!(file, "<table>")?;
     writeln!(file, "<tr><th style=\"width: 30%;\">Algorithm</th><th>Digest</th></tr>")?;
     for (algo, hash_val) in &data.hashes {
-        writeln!(file, "<tr><td>{:?}</td><td><code>{}</code></td></tr>", algo, hash_val)?;
+        writeln!(file, "<tr><td>{}</td><td><code>{}</code></td></tr>", algo, hash_val)?;
     }
     writeln!(file, "</table>")?;
     
@@ -143,7 +143,7 @@ pub fn generate_json_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
     let mut file = File::create(path)?;
     let mut hash_map = HashMap::new();
     for (k, v) in &data.hashes {
-        hash_map.insert(format!("{:?}", k), v.clone());
+        hash_map.insert(k.to_string(), v.clone());
     }
     let data_json = serde_json::json!({
         "case_number": data.case_number,
@@ -173,7 +173,7 @@ pub fn generate_csv_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Result
     writeln!(file, "\"{}\",\"Acquisition Started\",\"Source: {}\"", data.start_time.to_rfc2822(), data.source_device)?;
     writeln!(file, "\"{}\",\"Acquisition Finished\",\"Destination: {}\"", data.end_time.to_rfc2822(), data.dest_file)?;
     for (algo, hash_val) in &data.hashes {
-        writeln!(file, "\"{}\",\"Hash Computed\",\"{:?}: {}\"", data.end_time.to_rfc2822(), algo, hash_val)?;
+        writeln!(file, "\"{}\",\"Hash Computed\",\"{}: {}\"", data.end_time.to_rfc2822(), algo, hash_val)?;
     }
     Ok(())
 }

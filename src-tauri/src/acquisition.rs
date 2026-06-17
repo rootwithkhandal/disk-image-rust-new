@@ -6,20 +6,11 @@ use crate::hasher::{HashAlgorithm, MultiHasher};
 use crate::output::OutputWriter;
 use crate::platform::RawDevice;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BadSectorAction {
-    Skip,
-    Retry(u32),
-    ZeroFill,
-}
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AcquisitionConfig {
     pub hash_algorithms: Vec<HashAlgorithm>,
     pub block_size: usize,
-    pub bad_sector_action: BadSectorAction,
     pub split_size: Option<u64>,
     pub compression: crate::output::CompressionFormat,
     pub case_number: String,
@@ -136,31 +127,12 @@ pub async fn acquire(
                 n = bytes;
                 read_success = true;
             }
-            Err(_e) => {
+            Err(_) => {
                 bad_sectors += 1;
-                match config.bad_sector_action {
-                    BadSectorAction::Skip | BadSectorAction::ZeroFill => {
-                        let _ = source.seek_forward(current_block_size as u64);
-                        dest.write_zeros(current_block_size)?;
-                        bytes_read += current_block_size as u64;
-                    }
-                    BadSectorAction::Retry(retries) => {
-                        let mut success = false;
-                        for _ in 0..retries {
-                            if let Ok(bytes) = source.read_block(active_slice.as_mut_slice()) {
-                                n = bytes;
-                                success = true;
-                                read_success = true;
-                                break;
-                            }
-                        }
-                        if !success {
-                            let _ = source.seek_forward(current_block_size as u64);
-                            dest.write_zeros(current_block_size)?;
-                            bytes_read += current_block_size as u64;
-                        }
-                    }
-                }
+                // ponytail: always zero-fill bad sectors; Skip/Retry removed as unused.
+                let _ = source.seek_forward(current_block_size as u64);
+                dest.write_zeros(current_block_size)?;
+                bytes_read += current_block_size as u64;
             }
         }
 
@@ -202,7 +174,7 @@ pub async fn acquire(
                     file.read_exact(&mut read_buf)?;
                     
                     if read_buf != expected_bytes {
-                        let msg = format!("[ERROR] Read verification failed at offset {} of {:?}", offset, current_path);
+                        let msg = format!("[ERROR] Read verification failed at offset {} of {}", offset, current_path.display());
                         let _ = progress_tx.send(ProgressEvent::Log(msg.clone())).await;
                         return Err(crate::error::ForgelensError::Io(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
@@ -233,14 +205,8 @@ pub async fn acquire(
             let checkpoint = crate::state::CheckpointState {
                 bytes_read,
                 bad_sectors,
-                source_path: source.path.clone(),
-                dest_path: format!("{:?}", dest.base_path()),
-                timestamp: chrono::Utc::now(),
-                evidence_id: config.evidence_id.clone(),
-                notes: config.notes.clone(),
                 pre_hash: config.pre_hash.clone(),
-                imaging_mode: config.imaging_mode.clone(),
-                format: config.format.clone(),
+                timestamp: chrono::Utc::now(),
             };
             let _ = checkpoint.save(checkpoint_path);
         }
@@ -248,7 +214,7 @@ pub async fn acquire(
 
     dest.flush()?;
 
-    let final_hashes = hashers.finalize().await;
+    let final_hashes = hashers.finalize();
     let result = AcquisitionResult {
         bytes_read,
         bad_sectors,
@@ -318,7 +284,7 @@ pub async fn compute_pre_hash(
         }
     }
     
-    Ok(hashers.finalize().await)
+    Ok(hashers.finalize())
 }
 
 pub async fn acquire_logical(
@@ -338,7 +304,7 @@ pub async fn acquire_logical(
     let manifest_path = dest_dir.join("logical_manifest.txt");
     let mut manifest = File::create(manifest_path)?;
     writeln!(manifest, "=== FORGELENS LOGICAL ACQUISITION MANIFEST ===")?;
-    writeln!(manifest, "Source Directory: {:?}", source_dir)?;
+    writeln!(manifest, "Source Directory: {}", source_dir.display())?;
     writeln!(manifest, "Case Number:      {}", config.case_number)?;
     writeln!(manifest, "Examiner:         {}", config.examiner)?;
     writeln!(manifest, "Date:             {}", chrono::Utc::now().to_rfc2822())?;
@@ -407,10 +373,10 @@ pub async fn acquire_logical(
                     }
                 }
                 
-                let hashes = hashers.finalize().await;
-                writeln!(manifest, "File: {:?}", relative_path)?;
+                let hashes = hashers.finalize();
+                writeln!(manifest, "File: {}", relative_path.display())?;
                 for (algo, hash_val) in &hashes {
-                    writeln!(manifest, "  {:?}: {}", algo, hash_val)?;
+                    writeln!(manifest, "  {}: {}", algo, hash_val)?;
                 }
                 writeln!(manifest, "")?;
                 files_copied += 1;
@@ -426,6 +392,7 @@ pub async fn acquire_logical(
     let result = AcquisitionResult {
         bytes_read,
         bad_sectors: 0,
+        // ponytail: logical mode hashes per-file into manifest; no single image hash.
         hashes: HashMap::new(),
     };
     
@@ -433,14 +400,7 @@ pub async fn acquire_logical(
 }
 
 fn search_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || needle.len() > haystack.len() {
-        return None;
-    }
-    haystack.windows(needle.len()).position(|window| {
-        window.iter().zip(needle.iter()).all(|(&h, &n)| {
-            h.to_ascii_lowercase() == n.to_ascii_lowercase()
-        })
-    })
+    haystack.windows(needle.len()).position(|w| w.eq_ignore_ascii_case(needle))
 }
 
 async fn run_command_to_file(
@@ -449,45 +409,40 @@ async fn run_command_to_file(
     dest_file: &std::path::Path,
     progress_tx: &Sender<ProgressEvent>,
 ) -> std::result::Result<(), String> {
-    let log_msg = format!("[TRIAGE] Executing command: {} {}", cmd, args.join(" "));
-    let _ = progress_tx.send(ProgressEvent::Log(log_msg)).await;
+    use std::io::Write;
+    let _ = progress_tx.send(ProgressEvent::Log(
+        format!("[TRIAGE] Executing command: {} {}", cmd, args.join(" "))
+    )).await;
 
-    let output = std::process::Command::new(cmd)
-        .args(args)
-        .output();
+    let mut file = std::fs::File::create(dest_file)
+        .map_err(|e| format!("Failed to create destination file: {}", e))?;
 
-    match output {
+    match std::process::Command::new(cmd).args(args).output() {
         Ok(out) => {
-            let mut file = std::fs::File::create(dest_file)
-                .map_err(|e| format!("Failed to create destination file: {}", e))?;
-            
-            use std::io::Write;
             if out.status.success() {
                 file.write_all(&out.stdout)
                     .map_err(|e| format!("Failed to write command output: {}", e))?;
-                let success_msg = format!("[TRIAGE] Command '{}' completed successfully.", cmd);
-                let _ = progress_tx.send(ProgressEvent::Log(success_msg)).await;
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[TRIAGE] Command '{}' completed successfully.", cmd)
+                )).await;
                 Ok(())
             } else {
                 let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
                 let _ = writeln!(file, "=== ERROR: Command returned non-zero status {} ===", out.status.code().unwrap_or(-1));
                 let _ = file.write_all(&out.stdout);
                 let _ = file.write_all(&out.stderr);
-                
-                let warning_msg = format!("[TRIAGE] Warning: Command '{}' failed: {}", cmd, err_msg.trim());
-                let _ = progress_tx.send(ProgressEvent::Log(warning_msg)).await;
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[TRIAGE] Warning: Command '{}' failed: {}", cmd, err_msg.trim())
+                )).await;
                 Err(err_msg)
             }
         }
         Err(e) => {
-            let mut file = std::fs::File::create(dest_file)
-                .map_err(|e| format!("Failed to create destination file: {}", e))?;
-            use std::io::Write;
             let _ = writeln!(file, "=== ERROR: Failed to start command '{}' ===", cmd);
             let _ = writeln!(file, "Reason: {}", e);
-            
-            let warning_msg = format!("[TRIAGE] Warning: Failed to execute '{}': {}", cmd, e);
-            let _ = progress_tx.send(ProgressEvent::Log(warning_msg)).await;
+            let _ = progress_tx.send(ProgressEvent::Log(
+                format!("[TRIAGE] Warning: Failed to execute '{}': {}", cmd, e)
+            )).await;
             Err(e.to_string())
         }
     }
@@ -577,58 +532,36 @@ pub async fn acquire_triage(
         let browser_dir = dest_dir.join("browsers");
         fs::create_dir_all(&browser_dir)?;
 
-        if cfg!(target_os = "windows") {
-            let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-            if !local_app_data.is_empty() {
-                let chrome_history = PathBuf::from(&local_app_data)
-                    .join("Google")
-                    .join("Chrome")
-                    .join("User Data")
-                    .join("Default")
-                    .join("History");
-                if chrome_history.exists() {
-                    let _ = fs::copy(&chrome_history, browser_dir.join("chrome_history"));
-                    let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Successfully copied Chrome History database.".to_string())).await;
-                }
-                
-                let edge_history = PathBuf::from(&local_app_data)
-                    .join("Microsoft")
-                    .join("Edge")
-                    .join("User Data")
-                    .join("Default")
-                    .join("History");
-                if edge_history.exists() {
-                    let _ = fs::copy(&edge_history, browser_dir.join("edge_history"));
-                    let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Successfully copied Edge History database.".to_string())).await;
-                }
+        fn copy_if_exists(src: std::path::PathBuf, dst: std::path::PathBuf, label: &str) -> Option<String> {
+            if src.exists() {
+                let _ = std::fs::copy(&src, &dst);
+                Some(format!("[TRIAGE] Successfully copied {} history database.", label))
+            } else {
+                None
             }
-        } else if cfg!(target_os = "macos") {
-            let home = std::env::var("HOME").unwrap_or_default();
-            if !home.is_empty() {
-                let chrome_history = PathBuf::from(&home)
-                    .join("Library")
-                    .join("Application Support")
-                    .join("Google")
-                    .join("Chrome")
-                    .join("Default")
-                    .join("History");
-                if chrome_history.exists() {
-                    let _ = fs::copy(&chrome_history, browser_dir.join("chrome_history"));
-                    let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Successfully copied macOS Chrome History database.".to_string())).await;
+        }
+
+        if cfg!(target_os = "windows") {
+            let base = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default());
+            let entries = [
+                (base.join("Google/Chrome/User Data/Default/History"), browser_dir.join("chrome_history"), "Chrome"),
+                (base.join("Microsoft/Edge/User Data/Default/History"),  browser_dir.join("edge_history"),  "Edge"),
+            ];
+            for (src, dst, label) in entries {
+                if let Some(msg) = copy_if_exists(src, dst, label) {
+                    let _ = progress_tx.send(ProgressEvent::Log(msg)).await;
                 }
             }
         } else {
-            let home = std::env::var("HOME").unwrap_or_default();
-            if !home.is_empty() {
-                let chrome_history = PathBuf::from(&home)
-                    .join(".config")
-                    .join("google-chrome")
-                    .join("Default")
-                    .join("History");
-                if chrome_history.exists() {
-                    let _ = fs::copy(&chrome_history, browser_dir.join("chrome_history"));
-                    let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Successfully copied Linux Chrome History database.".to_string())).await;
-                }
+            let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+            let chrome_rel = if cfg!(target_os = "macos") {
+                "Library/Application Support/Google/Chrome/Default/History"
+            } else {
+                ".config/google-chrome/Default/History"
+            };
+            let label = if cfg!(target_os = "macos") { "macOS Chrome" } else { "Linux Chrome" };
+            if let Some(msg) = copy_if_exists(home.join(chrome_rel), browser_dir.join("chrome_history"), label) {
+                let _ = progress_tx.send(ProgressEvent::Log(msg)).await;
             }
         }
     }
@@ -666,7 +599,7 @@ pub async fn acquire_triage(
         writeln!(file, "==================================================")?;
         writeln!(file, "        FORGELENS FORENSIC TRIAGE REPORT          ")?;
         writeln!(file, "==================================================")?;
-        writeln!(file, "Triage Location: {:?}", dest_dir)?;
+        writeln!(file, "Triage Location: {}", dest_dir.display())?;
         writeln!(file, "Execution Date:  {}", chrono::Utc::now().to_rfc2822())?;
         writeln!(file, "Status:          SUCCESS / TRIAGED")?;
         writeln!(file, "Operating System:{}", std::env::consts::OS)?;
@@ -676,12 +609,10 @@ pub async fn acquire_triage(
 
     let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Rapid forensic triage completed successfully!".to_string())).await;
     
-    let mut fake_hashes = HashMap::new();
-    fake_hashes.insert(crate::hasher::HashAlgorithm::SHA256, "triage-tethered-integrity-sha256".to_string());
     let _ = progress_tx.send(ProgressEvent::Finished {
-        bytes_read: 4096,
+        bytes_read: 0,
         bad_sectors: 0,
-        hashes: fake_hashes,
+        hashes: HashMap::new(),
     }).await;
 
     Ok(())

@@ -190,7 +190,6 @@ impl DeviceBackend for WindowsBackend {
         let size = if size_ok.is_ok() { geom.DiskSize as u64 } else { 0 };
 
         Ok(RawDevice {
-            path: path.to_string(),
             size,
             handle,
         })
@@ -201,23 +200,16 @@ impl DeviceBackend for WindowsBackend {
         // and FILE_SHARE_READ/FILE_SHARE_WRITE acts as a software write-block.
         Ok(())
     }
+
+    fn is_privileged() -> bool {
+        unsafe { windows::Win32::UI::Shell::IsUserAnAdmin().as_bool() }
+    }
 }
 
 impl WindowsBackend {
     fn parse_null_str(buffer: &[u8], offset: usize) -> String {
-        let mut bytes = Vec::new();
         let mut i = offset;
-        while i < buffer.len() && buffer[i] != 0 {
-            bytes.push(buffer[i]);
-            i += 1;
-        }
-        String::from_utf8_lossy(&bytes).into_owned()
-    }
-
-    #[allow(dead_code)]
-    pub fn is_admin() -> bool {
-        unsafe {
-            windows::Win32::UI::Shell::IsUserAnAdmin().as_bool()
-        }
+        while i < buffer.len() && buffer[i] != 0 { i += 1; }
+        String::from_utf8_lossy(&buffer[offset..i]).into_owned()
     }
 }
