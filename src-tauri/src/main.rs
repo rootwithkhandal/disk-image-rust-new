@@ -840,6 +840,13 @@ async fn start_live_acquisition(
         }
 
         // ── Step 6: Generate Report ──
+        let mut source_size = 0u64;
+        if let Ok(vols) = list_volumes().await {
+            if let Some(vol) = vols.iter().find(|v| v.letter == config_input.volume) {
+                source_size = vol.total_size;
+            }
+        }
+
         let end_time_utc = chrono::Utc::now();
         let report_data = crate::report::ReportData {
             case_number: config_input.case_number.clone(),
@@ -849,7 +856,7 @@ async fn start_live_acquisition(
             imaging_mode: "Live System Acquisition".to_string(),
             format: "N/A".to_string(),
             source_device: config_input.volume.clone(),
-            source_size: 0,
+            source_size,
             source_model: "Live System".to_string(),
             source_serial: "N/A".to_string(),
             dest_file: dest_dir.display().to_string(),
@@ -880,7 +887,7 @@ async fn start_live_acquisition(
         )).await;
 
         let _ = tx.send(ProgressEvent::Finished {
-            bytes_read: 0,
+            bytes_read: source_size,
             bad_sectors: 0,
             hashes: HashMap::new(),
         }).await;
