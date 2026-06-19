@@ -22,6 +22,15 @@ pub struct ReportData {
     pub bad_sectors: u64,
     pub pre_hashes: HashMap<HashAlgorithm, String>,
     pub hashes: HashMap<HashAlgorithm, String>,
+    // Live acquisition fields
+    pub vss_snapshot_id: Option<String>,
+    pub ram_dump_path: Option<String>,
+    pub ram_dump_size: Option<u64>,
+    pub ram_dump_hash: Option<String>,
+    pub locked_files_copied: Vec<String>,
+    pub consistency_blocks_checked: Option<u64>,
+    pub consistency_blocks_matched: Option<u64>,
+    pub consistency_mismatches: Vec<u64>,
 }
 
 fn to_ist_rfc2822(dt: &chrono::DateTime<chrono::Utc>) -> String {
@@ -96,6 +105,61 @@ pub fn generate_txt_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Result
     } else {
         writeln!(file, "Acquisition Status: WARNING - HASH MISMATCH")?;
     }
+
+    // Live Acquisition sections (only printed when data is present)
+    if data.vss_snapshot_id.is_some() || data.ram_dump_path.is_some() || !data.locked_files_copied.is_empty() {
+        writeln!(file, "")?;
+        writeln!(file, "==================================================")?;
+        writeln!(file, "          LIVE ACQUISITION DETAILS                ")?;
+        writeln!(file, "==================================================")?;
+
+        if let Some(ref vss_id) = data.vss_snapshot_id {
+            writeln!(file, "--------------------------------------------------")?;
+            writeln!(file, "VSS SNAPSHOT")?;
+            writeln!(file, "  Shadow Copy ID: {}", vss_id)?;
+        }
+
+        if let Some(ref ram_path) = data.ram_dump_path {
+            writeln!(file, "--------------------------------------------------")?;
+            writeln!(file, "RAM ACQUISITION")?;
+            writeln!(file, "  Dump Path:      {}", ram_path)?;
+            if let Some(ram_size) = data.ram_dump_size {
+                writeln!(file, "  Dump Size:      {} bytes ({:.2} GB)", ram_size, ram_size as f64 / 1_000_000_000.0)?;
+            }
+            if let Some(ref ram_hash) = data.ram_dump_hash {
+                writeln!(file, "  Dump Hash:      {}", ram_hash)?;
+            }
+        }
+
+        if !data.locked_files_copied.is_empty() {
+            writeln!(file, "--------------------------------------------------")?;
+            writeln!(file, "LOCKED FILES ACQUIRED")?;
+            for f in &data.locked_files_copied {
+                writeln!(file, "  ✓ {}", f)?;
+            }
+        }
+
+        if let Some(checked) = data.consistency_blocks_checked {
+            writeln!(file, "--------------------------------------------------")?;
+            writeln!(file, "FILESYSTEM CONSISTENCY VALIDATION")?;
+            let matched = data.consistency_blocks_matched.unwrap_or(0);
+            let mismatched = checked.saturating_sub(matched);
+            let pct = if checked > 0 { matched as f64 / checked as f64 * 100.0 } else { 100.0 };
+            writeln!(file, "  Blocks Checked:  {}", checked)?;
+            writeln!(file, "  Blocks Matched:  {}", matched)?;
+            writeln!(file, "  Blocks Mismatch: {}", mismatched)?;
+            writeln!(file, "  Consistency:     {:.2}%", pct)?;
+            if mismatched == 0 {
+                writeln!(file, "  Status:          PASSED")?;
+            } else {
+                writeln!(file, "  Status:          FAILED — {} blocks differ", mismatched)?;
+                for offset in data.consistency_mismatches.iter().take(20) {
+                    writeln!(file, "    Offset: 0x{:X}", offset)?;
+                }
+            }
+        }
+    }
+
     writeln!(file, "==================================================")?;
     Ok(())
 }

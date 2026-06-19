@@ -150,6 +150,8 @@ pub fn detect_partitions(_device_path: &str) -> Vec<PartitionInfo> {
 pub mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::WindowsBackend as ActiveBackend;
+#[cfg(target_os = "windows")]
+pub mod vss;
 
 #[cfg(target_os = "linux")]
 pub mod linux;

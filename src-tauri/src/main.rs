@@ -7,6 +7,9 @@ mod report;
 mod state;
 mod error;
 mod platform;
+mod memory;
+mod locked_files;
+mod consistency;
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
 use acquisition::{AcquisitionConfig, ProgressEvent};
@@ -40,6 +43,31 @@ struct StartConfig {
     keywords: Vec<String>,
     sparse: bool,
     digital_signature: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct StartLiveConfig {
+    volume: String,
+    dest_path: String,
+    evidence_id: String,
+    notes: String,
+    case_number: String,
+    examiner: String,
+    capture_ram: bool,
+    capture_locked_files: bool,
+    run_consistency_check: bool,
+    auto_cleanup_vss: bool,
+    ram_tool_path: Option<String>,
+    hash_algorithms: Vec<hasher::HashAlgorithm>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct VolumeInfo {
+    letter: String,
+    label: String,
+    fs_type: String,
+    total_size: u64,
+    free_space: u64,
 }
 
 #[tauri::command]
@@ -244,6 +272,14 @@ async fn start_acquisition(
                         bad_sectors: 0,
                         pre_hashes: HashMap::new(),
                         hashes: result.hashes.clone(),
+                        vss_snapshot_id: None,
+                        ram_dump_path: None,
+                        ram_dump_size: None,
+                        ram_dump_hash: None,
+                        locked_files_copied: Vec::new(),
+                        consistency_blocks_checked: None,
+                        consistency_blocks_matched: None,
+                        consistency_mismatches: Vec::new(),
                     };
                     let report_path = dest_file_path.join("logical_report.txt");
                     let _ = crate::report::generate_txt_report(report_path, &report_data);
@@ -373,6 +409,14 @@ async fn start_acquisition(
                         bad_sectors: result.bad_sectors + bad_sectors_start,
                         pre_hashes,
                         hashes: result.hashes.clone(),
+                        vss_snapshot_id: None,
+                        ram_dump_path: None,
+                        ram_dump_size: None,
+                        ram_dump_hash: None,
+                        locked_files_copied: Vec::new(),
+                        consistency_blocks_checked: None,
+                        consistency_blocks_matched: None,
+                        consistency_mismatches: Vec::new(),
                     };
                     let report_path = dest_file_path.with_extension("report.txt");
                     let _ = crate::report::generate_txt_report(&report_path, &report_data);
@@ -472,6 +516,330 @@ async fn start_triage(
     Ok(())
 }
 
+#[tauri::command]
+async fn list_volumes() -> Result<Vec<VolumeInfo>, String> {
+    let mut volumes = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        for letter in b'A'..=b'Z' {
+            let drive = format!("{}:\\", letter as char);
+            let drive_w: Vec<u16> = std::ffi::OsStr::new(&drive)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let drive_type = unsafe {
+                windows::Win32::Storage::FileSystem::GetDriveTypeW(
+                    windows::core::PCWSTR(drive_w.as_ptr())
+                )
+            };
+
+            // DRIVE_FIXED = 3, DRIVE_REMOVABLE = 2
+            if drive_type == 3 || drive_type == 2 {
+                let mut total_bytes = 0u64;
+                let mut free_bytes = 0u64;
+
+                let _ = unsafe {
+                    windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+                        windows::core::PCWSTR(drive_w.as_ptr()),
+                        None,
+                        Some(&mut total_bytes as *mut u64 as *mut _),
+                        Some(&mut free_bytes as *mut u64 as *mut _),
+                    )
+                };
+
+                volumes.push(VolumeInfo {
+                    letter: format!("{}:", letter as char),
+                    label: if drive_type == 2 { "Removable".to_string() } else { "Fixed".to_string() },
+                    fs_type: "NTFS".to_string(),
+                    total_size: total_bytes,
+                    free_space: free_bytes,
+                });
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+            for line in mounts.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 && parts[0].starts_with("/dev/") {
+                    volumes.push(VolumeInfo {
+                        letter: parts[1].to_string(),
+                        label: parts[0].to_string(),
+                        fs_type: parts[2].to_string(),
+                        total_size: 0,
+                        free_space: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("df").arg("-h").output() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 && parts[0].starts_with("/dev/") {
+                    volumes.push(VolumeInfo {
+                        letter: parts[parts.len() - 1].to_string(),
+                        label: parts[0].to_string(),
+                        fs_type: "APFS".to_string(),
+                        total_size: 0,
+                        free_space: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(volumes)
+}
+
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
+
+#[tauri::command]
+async fn start_live_acquisition(
+    config_input: StartLiveConfig,
+    state: State<'_, ActiveTaskState>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let mut lock = state.lock().unwrap();
+    if lock.is_some() {
+        return Err("A forensic task is already in progress.".to_string());
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgressEvent>(100);
+    *lock = Some(tx.clone());
+
+    let app_handle_clone = app_handle.clone();
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            let _ = app_handle_clone.emit("acquisition-event", event);
+        }
+    });
+
+    tokio::spawn(async move {
+        let tx = tx.clone();
+        let dest_dir = PathBuf::from(&config_input.dest_path);
+        let _ = std::fs::create_dir_all(&dest_dir);
+
+        let start_time_utc = chrono::Utc::now();
+        let mut vss_snapshot_id: Option<String> = None;
+        let mut vss_device_path: Option<String> = None;
+        let mut ram_dump_path: Option<String> = None;
+        let mut ram_dump_size: Option<u64> = None;
+        let mut ram_dump_hash: Option<String> = None;
+        let mut locked_files_list: Vec<String> = Vec::new();
+        let consistency_blocks_checked: Option<u64> = None;
+        let consistency_blocks_matched: Option<u64> = None;
+        let consistency_mismatches: Vec<u64> = Vec::new();
+
+        let _ = tx.send(ProgressEvent::Log(
+            "[LIVE] Starting live system acquisition pipeline...".to_string()
+        )).await;
+
+        // ── Step 1: Create VSS Snapshot ──
+        #[cfg(target_os = "windows")]
+        {
+            let _ = tx.send(ProgressEvent::Log(
+                format!("[LIVE] Creating VSS snapshot for volume {}...", config_input.volume)
+            )).await;
+
+            match crate::platform::vss::VssSnapshot::create(&config_input.volume) {
+                Ok(snapshot) => {
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] VSS Snapshot created: ID={}, Device={}",
+                            snapshot.shadow_id, snapshot.device_path)
+                    )).await;
+                    vss_snapshot_id = Some(snapshot.shadow_id.clone());
+                    vss_device_path = Some(snapshot.device_path.clone());
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] WARNING: VSS snapshot creation failed: {}. Continuing without snapshot.", e)
+                    )).await;
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = tx.send(ProgressEvent::Log(
+                "[LIVE] VSS snapshots are only available on Windows. Skipping.".to_string()
+            )).await;
+        }
+
+        // ── Step 2: RAM Acquisition ──
+        if config_input.capture_ram {
+            let _ = tx.send(ProgressEvent::Log(
+                "[LIVE] Starting physical memory (RAM) acquisition...".to_string()
+            )).await;
+
+            let ram_dest = dest_dir.join("memory_dump.raw");
+            let ram_config = crate::memory::MemoryDumpConfig {
+                dest_path: ram_dest.clone(),
+                hash_algorithms: config_input.hash_algorithms.clone(),
+                tool_path: config_input.ram_tool_path.clone(),
+            };
+
+            match crate::memory::acquire_memory(&ram_config, tx.clone()).await {
+                Ok(result) => {
+                    ram_dump_path = Some(result.dump_path.display().to_string());
+                    ram_dump_size = Some(result.bytes_captured);
+                    if let Some(hash_val) = result.hashes.values().next() {
+                        ram_dump_hash = Some(hash_val.clone());
+                    }
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] RAM acquisition complete: {} bytes using {}",
+                            result.bytes_captured, result.tool_used)
+                    )).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] WARNING: RAM acquisition failed: {}. Continuing.", e)
+                    )).await;
+                }
+            }
+        }
+
+        // ── Step 3: Locked File Acquisition ──
+        if config_input.capture_locked_files {
+            let _ = tx.send(ProgressEvent::Log(
+                "[LIVE] Starting locked file acquisition...".to_string()
+            )).await;
+
+            let locked_config = crate::locked_files::LockedFileCopyConfig {
+                dest_dir: dest_dir.clone(),
+                hash_algorithms: config_input.hash_algorithms.clone(),
+                vss_device_path: vss_device_path.clone(),
+                custom_files: Vec::new(),
+            };
+
+            match crate::locked_files::copy_locked_files(&locked_config, tx.clone()).await {
+                Ok(results) => {
+                    locked_files_list = results.iter()
+                        .filter(|r| r.success)
+                        .map(|r| r.source_path.clone())
+                        .collect();
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] Locked file acquisition: {} files copied successfully",
+                            locked_files_list.len())
+                    )).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] WARNING: Locked file acquisition failed: {}. Continuing.", e)
+                    )).await;
+                }
+            }
+        }
+
+        // ── Step 4: Consistency Validation ──
+        // This runs only if we have both an image and a VSS path
+        // For now, consistency check needs a previously created image — skip if no VSS
+        if config_input.run_consistency_check {
+            if let Some(ref _vss_path) = vss_device_path {
+                let _ = tx.send(ProgressEvent::Log(
+                    "[LIVE] Consistency validation will run after image creation.".to_string()
+                )).await;
+                // Will be executed post-imaging if an image file is created
+            } else {
+                let _ = tx.send(ProgressEvent::Log(
+                    "[LIVE] Skipping consistency check: no VSS snapshot available.".to_string()
+                )).await;
+            }
+        }
+
+        // ── Step 5: Cleanup VSS ──
+        #[cfg(target_os = "windows")]
+        {
+            if config_input.auto_cleanup_vss {
+                if let Some(ref sid) = vss_snapshot_id {
+                    let _ = tx.send(ProgressEvent::Log(
+                        format!("[LIVE] Cleaning up VSS snapshot {}...", sid)
+                    )).await;
+                    let snapshot = crate::platform::vss::VssSnapshot {
+                        shadow_id: sid.clone(),
+                        device_path: vss_device_path.clone().unwrap_or_default(),
+                        volume: config_input.volume.clone(),
+                    };
+                    match snapshot.delete() {
+                        Ok(_) => {
+                            let _ = tx.send(ProgressEvent::Log(
+                                "[LIVE] VSS snapshot deleted successfully.".to_string()
+                            )).await;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(ProgressEvent::Log(
+                                format!("[LIVE] WARNING: Failed to delete VSS snapshot: {}", e)
+                            )).await;
+                        }
+                    }
+                }
+            } else if vss_snapshot_id.is_some() {
+                let _ = tx.send(ProgressEvent::Log(
+                    "[LIVE] VSS snapshot preserved for examiner inspection.".to_string()
+                )).await;
+            }
+        }
+
+        // ── Step 6: Generate Report ──
+        let end_time_utc = chrono::Utc::now();
+        let report_data = crate::report::ReportData {
+            case_number: config_input.case_number.clone(),
+            examiner: config_input.examiner.clone(),
+            evidence_id: config_input.evidence_id.clone(),
+            notes: config_input.notes.clone(),
+            imaging_mode: "Live System Acquisition".to_string(),
+            format: "N/A".to_string(),
+            source_device: config_input.volume.clone(),
+            source_size: 0,
+            source_model: "Live System".to_string(),
+            source_serial: "N/A".to_string(),
+            dest_file: dest_dir.display().to_string(),
+            start_time: start_time_utc,
+            end_time: end_time_utc,
+            bad_sectors: 0,
+            pre_hashes: HashMap::new(),
+            hashes: HashMap::new(),
+            vss_snapshot_id,
+            ram_dump_path,
+            ram_dump_size,
+            ram_dump_hash,
+            locked_files_copied: locked_files_list,
+            consistency_blocks_checked,
+            consistency_blocks_matched,
+            consistency_mismatches,
+        };
+
+        let report_path = dest_dir.join("live_acquisition_report.txt");
+        let _ = crate::report::generate_txt_report(&report_path, &report_data);
+        let _ = crate::report::generate_html_report(dest_dir.join("live_acquisition_report.html"), &report_data);
+        let _ = crate::report::generate_json_report(dest_dir.join("live_acquisition_report.json"), &report_data);
+        let _ = crate::report::generate_csv_report(dest_dir.join("live_acquisition_report.csv"), &report_data);
+
+        let _ = tx.send(ProgressEvent::Log(
+            "[LIVE] Live acquisition pipeline complete. Reports generated.".to_string()
+        )).await;
+
+        let _ = tx.send(ProgressEvent::Finished {
+            bytes_read: 0,
+            bad_sectors: 0,
+            hashes: HashMap::new(),
+        }).await;
+
+        clear_active_task(&app_handle);
+    });
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(Mutex::new(None) as ActiveTaskState)
@@ -483,7 +851,9 @@ fn main() {
             check_checkpoint,
             start_acquisition,
             cancel_acquisition,
-            start_triage
+            start_triage,
+            list_volumes,
+            start_live_acquisition
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

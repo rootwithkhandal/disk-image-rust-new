@@ -162,6 +162,45 @@ if (window.__TAURI__) {
       }, 250);
       return;
     }
+    if (cmd === 'list_volumes') {
+      await new Promise(r => setTimeout(r, 300));
+      return [
+        { letter: 'C:', label: 'Windows', fs_type: 'NTFS', total_size: 1000204886016, free_space: 450000000000 },
+        { letter: 'D:', label: 'Data', fs_type: 'exFAT', total_size: 2000204886016, free_space: 1500000000000 }
+      ];
+    }
+    
+    if (cmd === 'start_live_acquisition') {
+      const config = args.configInput;
+      triggerMockEvent('acquisition-event', { type: 'Log', data: `[LIVE] Starting simulated live acquisition of volume ${config.volume} to ${config.dest_path}` });
+      
+      let progress = 0;
+      mockInterval = setInterval(() => {
+        progress += 20;
+        if (progress === 20) {
+          if (config.capture_ram) triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Capturing physical memory (RAM)...' });
+        } else if (progress === 40) {
+          triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Creating VSS snapshot for consistent imaging...' });
+        } else if (progress === 60) {
+          if (config.capture_locked_files) triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Copying OS-locked registry hives and MFT...' });
+        } else if (progress === 80) {
+          if (config.run_consistency_check) triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Running filesystem consistency validation against VSS...' });
+        } else if (progress >= 100) {
+          clearInterval(mockInterval);
+          if (config.auto_cleanup_vss) triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Cleaning up temporary VSS snapshot...' });
+          triggerMockEvent('acquisition-event', { type: 'Log', data: '[LIVE] Live acquisition completed successfully! Reports generated.' });
+          triggerMockEvent('acquisition-event', {
+            type: 'Finished',
+            data: {
+              bytes_read: 0,
+              bad_sectors: 0,
+              hashes: {}
+            }
+          });
+        }
+      }, 1000);
+      return;
+    }
   };
 }
 
@@ -416,6 +455,7 @@ function setupEventListeners() {
   // Tab Navigation Buttons
   document.getElementById('btn-tab-imaging').addEventListener('click', () => switchTab('imaging'));
   document.getElementById('btn-tab-triage').addEventListener('click', () => switchTab('triage'));
+  document.getElementById('btn-tab-live').addEventListener('click', () => switchTab('live'));
   document.getElementById('btn-tab-manager').addEventListener('click', () => switchTab('manager'));
 
   // Triage Destination folder browse
@@ -462,6 +502,83 @@ function setupEventListeners() {
       toggleUIJobActive(false);
       logMessage('ERROR', 'Failed to start triage: ' + err);
       alert('Failed to start triage: ' + err);
+    }
+  });
+
+  // Live Acquisition Buttons
+  document.getElementById('btn-refresh-volumes').addEventListener('click', async () => {
+    try {
+      const select = document.getElementById('live-volume-select');
+      select.innerHTML = '<option value="">Scanning...</option>';
+      const vols = await invoke('list_volumes');
+      select.innerHTML = vols.map(v => `<option value="${v.letter}">${v.letter} [${v.label}] - ${v.fs_type}</option>`).join('');
+      if (vols.length === 0) select.innerHTML = '<option value="">No volumes found</option>';
+      logMessage('SYSTEM', `Refreshed system volumes (${vols.length} found).`);
+    } catch (e) {
+      logMessage('ERROR', 'Failed to list volumes: ' + e);
+    }
+  });
+
+  document.getElementById('btn-browse-live-dest').addEventListener('click', async () => {
+    try {
+      const folder = await invoke('browse_folder');
+      if (folder) {
+        document.getElementById('live-dest-path').value = folder;
+        logMessage('SYSTEM', 'Set live acquisition destination directory: ' + folder);
+      }
+    } catch (e) {
+      logMessage('ERROR', 'Failed to browse folder: ' + e);
+    }
+  });
+
+  document.getElementById('btn-browse-ram-tool').addEventListener('click', async () => {
+    try {
+      const file = await invoke('browse_file', { ext: 'exe' });
+      if (file) {
+        document.getElementById('live-ram-tool').value = file;
+        logMessage('SYSTEM', 'Set custom RAM acquisition tool: ' + file);
+      }
+    } catch (e) {
+      logMessage('ERROR', 'Failed to browse file: ' + e);
+    }
+  });
+
+  document.getElementById('btn-start-live').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const volume = document.getElementById('live-volume-select').value;
+    const destPath = document.getElementById('live-dest-path').value;
+    
+    if (!volume || !destPath) {
+      alert('Please select both a system volume and a destination folder.');
+      return;
+    }
+
+    const config = {
+      volume,
+      dest_path: destPath,
+      evidence_id: document.getElementById('live-evidence-id').value,
+      notes: document.getElementById('live-notes').value,
+      case_number: document.getElementById('live-case-num').value,
+      examiner: document.getElementById('live-examiner').value,
+      capture_ram: document.getElementById('live-cb-ram').checked,
+      capture_locked_files: document.getElementById('live-cb-locked').checked,
+      run_consistency_check: document.getElementById('live-cb-consistency').checked,
+      auto_cleanup_vss: document.getElementById('live-cb-cleanup').checked,
+      ram_tool_path: document.getElementById('live-ram-tool').value || null,
+      hash_algorithms: ['SHA-256']
+    };
+
+    try {
+      state.activeJob = true;
+      toggleUIJobActive(true);
+      resetStats();
+      logMessage('SYSTEM', 'Initiating live system acquisition pipeline...');
+      await invoke('start_live_acquisition', { configInput: config });
+    } catch (err) {
+      state.activeJob = false;
+      toggleUIJobActive(false);
+      logMessage('ERROR', 'Failed to start live acquisition: ' + err);
+      alert('Failed to start live acquisition: ' + err);
     }
   });
 
@@ -526,6 +643,7 @@ function setupEventListeners() {
 function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
+  document.querySelectorAll('.tab-content').forEach(panel => panel.classList.add('hidden'));
   
   if (tabName === 'imaging') {
     document.getElementById('btn-tab-imaging').classList.add('active');
@@ -535,6 +653,15 @@ function switchTab(tabName) {
     document.getElementById('btn-tab-triage').classList.add('active');
     document.getElementById('tab-triage-content').classList.remove('hidden');
     document.getElementById('sidebar-panel').classList.add('hidden');
+  } else if (tabName === 'live') {
+    document.getElementById('btn-tab-live').classList.add('active');
+    document.getElementById('tab-live-content').classList.remove('hidden');
+    document.getElementById('sidebar-panel').classList.add('hidden');
+    // Auto-refresh volumes if empty
+    const volSelect = document.getElementById('live-volume-select');
+    if (volSelect.options.length <= 1) {
+      document.getElementById('btn-refresh-volumes').click();
+    }
   } else if (tabName === 'manager') {
     document.getElementById('btn-tab-manager').classList.add('active');
     document.getElementById('tab-manager-content').classList.remove('hidden');

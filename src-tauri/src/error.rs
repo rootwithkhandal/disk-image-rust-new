@@ -11,6 +11,9 @@ pub enum ForgelensError {
     #[error("Backend error: {0}")]
     Backend(String),
 
+    #[error("VSS error: {0}")]
+    VssError(String),
+
     #[error("Acquisition cancelled")]
     Cancelled,
 }

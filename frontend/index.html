@@ -32,6 +32,7 @@
     <div class="tab-navigation">
       <button class="tab-btn active" id="btn-tab-imaging" data-tab="imaging">📂 Disk Imaging</button>
       <button class="tab-btn" id="btn-tab-triage" data-tab="triage">⚡ System Triage</button>
+      <button class="tab-btn" id="btn-tab-live" data-tab="live">🔴 Live Acquisition</button>
       <button class="tab-btn" id="btn-tab-manager" data-tab="manager">📦 Image Manager</button>
     </div>
 
@@ -289,7 +290,107 @@
           </div>
         </div>
 
-        <!-- TAB 3: IMAGE MANAGER -->
+    <!-- ========================================== -->
+    <!-- LIVE ACQUISITION TAB                       -->
+    <!-- ========================================== -->
+    <div id="tab-live-content" class="tab-panel hidden">
+      <div class="panel-header">
+        <h2><span class="chip-red" style="padding: 2px 6px; border-radius: 4px; background: rgba(255,50,50,0.2); color: #ff5555; margin-right: 8px;">LIVE</span> Live System Acquisition</h2>
+      </div>
+      <div class="scroll-area">
+        <form id="live-form" class="config-form">
+          <p class="help-text full-width" style="grid-column: 1 / -1; margin-bottom: 15px;">
+            Acquire evidence from the running system safely. This process uses VSS (Volume Shadow Copy) to freeze the filesystem state, captures physical RAM, and copies OS-locked files (like the Registry and MFT).
+          </p>
+          <div class="form-grid">
+
+            <div class="form-group full-width">
+              <label for="live-volume-select">System Volume</label>
+              <div class="input-browse-group">
+                <select id="live-volume-select" style="flex: 1; padding: 10px; background: var(--bg-deep); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px;">
+                  <option value="">Loading volumes...</option>
+                </select>
+                <button type="button" class="btn btn-secondary" id="btn-refresh-volumes">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div class="form-group full-width">
+              <label>Capabilities</label>
+              <div class="checkbox-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 5px;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="live-cb-vss" checked>
+                  <span>Create VSS Snapshot (Consistency)</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="live-cb-ram" checked>
+                  <span>Capture Physical Memory (RAM)</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="live-cb-locked" checked>
+                  <span>Copy Locked Files (Registry, MFT, etc.)</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="live-cb-consistency" checked>
+                  <span>Run Consistency Validation</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="live-cb-cleanup" checked>
+                  <span>Auto-cleanup VSS after acquisition</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group full-width">
+              <label for="live-dest-path">Destination Folder</label>
+              <div class="input-browse-group">
+                <input type="text" id="live-dest-path" placeholder="e.g., D:\Case_001\Live_Acq" required readonly>
+                <button type="button" class="btn btn-secondary" id="btn-browse-live-dest">Browse...</button>
+              </div>
+            </div>
+            
+            <div class="form-group full-width" id="ram-tool-group">
+              <label for="live-ram-tool">RAM Acquisition Tool Path (Optional)</label>
+              <div class="input-browse-group">
+                <input type="text" id="live-ram-tool" placeholder="Path to winpmem_mini_x64.exe or avml. Leave empty to auto-detect." readonly>
+                <button type="button" class="btn btn-secondary" id="btn-browse-ram-tool">Browse...</button>
+              </div>
+            </div>
+
+            <!-- Case Metadata Row 1 -->
+            <div class="form-group">
+              <label for="live-case-num">Case Number</label>
+              <input type="text" id="live-case-num" placeholder="Case Number">
+            </div>
+            <div class="form-group">
+              <label for="live-evidence-id">Evidence ID</label>
+              <input type="text" id="live-evidence-id" placeholder="Evidence ID">
+            </div>
+
+            <!-- Case Metadata Row 2 -->
+            <div class="form-group">
+              <label for="live-examiner">Examiner Name</label>
+              <input type="text" id="live-examiner" placeholder="Examiner Name">
+            </div>
+            <div class="form-group">
+              <label for="live-notes">Notes (Optional)</label>
+              <input type="text" id="live-notes" placeholder="Notes (Optional)">
+            </div>
+
+            <div class="form-group full-width" style="margin-top: 24px;">
+              <button type="button" class="btn btn-primary" id="btn-start-live" style="width: 260px;">
+                ▶ Start Live Acquisition
+              </button>
+            </div>
+
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- IMAGE MANAGER TAB                          -->
+    <!-- ========================================== -->
+    <div class="tab-content" id="tab-manager-content">
         <div id="tab-manager-content" class="tab-panel hidden">
           <div class="panel-header">
             <h2>📦 Forensic Image Manager</h2>
