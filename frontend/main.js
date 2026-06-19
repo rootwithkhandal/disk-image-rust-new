@@ -565,7 +565,7 @@ function setupEventListeners() {
       run_consistency_check: document.getElementById('live-cb-consistency').checked,
       auto_cleanup_vss: document.getElementById('live-cb-cleanup').checked,
       ram_tool_path: document.getElementById('live-ram-tool').value || null,
-      hash_algorithms: ['SHA-256']
+      hash_algorithms: ['SHA256']
     };
 
     try {
