@@ -208,7 +208,7 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
 
         let post_file_hash_html = if let Some(post) = &data.post_hashes {
             let val = post.get(algo).cloned().unwrap_or_else(|| "N/A".to_string());
-            format!(r#"<div class="hash-label">Post-Acquisition (Image File Hash)</div><div class="hash-value">{}</div>"#, val)
+            format!(r#"<div class="hash-item-label">Post-Acquisition (Image File Hash)</div><div class="hash-item-value"><span>{}</span><button class="copy-btn" title="Copy">📋</button></div>"#, val)
         } else {
             String::new()
         };
@@ -216,11 +216,11 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
         hashes_html.push_str(&format!(r#"
             <div class="hash-row">
                 <div class="hash-algo">{algo}</div>
-                <div class="hash-content">
-                    <div class="hash-label">Pre-Acquisition (Source Device)</div>
-                    <div class="hash-value">{pre_hash}</div>
-                    <div class="hash-label">Acquisition (Stream Verification)</div>
-                    <div class="hash-value">{post_hash}</div>
+                <div>
+                    <div class="hash-item-label">Pre-Acquisition (Source Device)</div>
+                    <div class="hash-item-value"><span>{pre_hash}</span><button class="copy-btn" title="Copy">📋</button></div>
+                    <div class="hash-item-label">Acquisition (Stream Verification)</div>
+                    <div class="hash-item-value"><span>{post_hash}</span><button class="copy-btn" title="Copy">📋</button></div>
                     {post_file_hash_html}
                 </div>
                 <div class="hash-match">{match_text}</div>
@@ -240,30 +240,56 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ForgeLens Forensic Report — {{CASE_NUMBER}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #f8fafc;
+            /* Light Theme (Forensic Precision) */
+            --bg: #f8f9ff;
             --surface: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --primary: #0284c7;
+            --text-main: #0b1c30;
+            --text-muted: #424656;
+            --border: #c2c6d8;
+            --primary: #0066ff;
             --success: #10b981;
-            --success-bg: #d1fae5;
-            --error: #ef4444;
-            --error-bg: #fee2e2;
+            --success-bg: #ecfdf5;
+            --error: #ba1a1a;
+            --error-bg: #ffdad6;
+            --card-hover: rgba(0, 102, 255, 0.02);
+            --border-hover: #0066ff;
+            --shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
+
+        [data-theme="dark"] {
+            /* Dark Theme (Cyber-Forensic Protocol) */
+            --bg: #0f141a;
+            --surface: #1b2027;
+            --text-main: #dee2ec;
+            --text-muted: #849495;
+            --border: #2c3138;
+            --primary: #00f5ff;
+            --success: #4edea3;
+            --success-bg: rgba(78, 222, 163, 0.1);
+            --error: #ffb4ab;
+            --error-bg: rgba(255, 180, 171, 0.1);
+            --card-hover: rgba(0, 245, 255, 0.02);
+            --border-hover: #00f5ff;
+            --shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        * { box-sizing: border-box; }
+        
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg);
             color: var(--text-main);
             margin: 0;
-            padding: 40px;
+            padding: 20px;
             line-height: 1.5;
+            transition: background-color 0.3s, color 0.3s;
         }
         .container {
             max-width: 1200px;
@@ -276,6 +302,8 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             padding-bottom: 24px;
             border-bottom: 2px solid var(--border);
             margin-bottom: 32px;
+            flex-wrap: wrap;
+            gap: 16px;
         }
         .header-title h1 {
             margin: 0;
@@ -290,6 +318,30 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             text-align: right;
             line-height: 1.8;
         }
+        
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .btn {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
         .grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -301,7 +353,13 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: var(--shadow);
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-hover);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         }
         .card h3 {
             margin-top: 0;
@@ -333,35 +391,79 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             font-weight: 600;
             word-break: break-all;
             color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .data-mono {
             font-family: 'JetBrains Mono', monospace;
             font-weight: 500;
             font-size: 14px;
         }
-        .hash-table {
+        
+        .copy-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            padding: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .value:hover .copy-btn {
+            opacity: 1;
+        }
+
+        .hash-section {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: var(--shadow);
         }
+        
+        .hash-header {
+            padding: 16px 24px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--surface);
+            transition: background 0.2s;
+        }
+        .hash-header:hover {
+            background: var(--card-hover);
+        }
+        .hash-header h3 {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-main);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 700;
+        }
+        
+        .hash-content-wrapper {
+            display: block;
+        }
+
         .hash-row {
             display: grid;
             grid-template-columns: 120px 1fr 150px;
             padding: 20px 24px;
-            border-bottom: 1px solid var(--border);
+            border-top: 1px solid var(--border);
             align-items: center;
+            transition: background 0.2s;
         }
-        .hash-row:last-child {
-            border-bottom: none;
+        .hash-row:hover {
+            background: var(--card-hover);
         }
         .hash-algo {
             font-weight: 700;
             font-size: 18px;
             color: var(--primary);
         }
-        .hash-content .hash-label {
+        .hash-item-label {
             font-size: 11px;
             color: var(--text-muted);
             font-weight: 700;
@@ -369,16 +471,19 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             margin-top: 12px;
             font-family: 'JetBrains Mono', monospace;
         }
-        .hash-content .hash-label:first-child {
-            margin-top: 0;
-        }
-        .hash-content .hash-value {
+        .hash-item-label:first-child { margin-top: 0; }
+        .hash-item-value {
             font-family: 'JetBrains Mono', monospace;
             font-size: 14px;
             color: var(--text-main);
             font-weight: 500;
             margin-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
+        .hash-item-value:hover .copy-btn { opacity: 1; }
+        
         .hash-match {
             display: flex;
             align-items: center;
@@ -397,26 +502,40 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
         .badge.success {
             background: var(--success-bg);
             color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--success);
         }
         .badge.error {
             background: var(--error-bg);
             color: var(--error);
-            border: 1px solid rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--error);
         }
         .badge.neutral {
-            background: #f1f5f9;
+            background: var(--surface);
             color: var(--text-muted);
             border: 1px solid var(--border);
         }
+
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .header-meta { text-align: left; margin-top: 16px; }
+            .hash-row {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            .hash-match { justify-content: flex-start; margin-top: 8px; }
+        }
     </style>
 </head>
-<body>
+<body data-theme="dark">
     <div class="container">
         <div class="header">
             <div class="header-title">
-                <h1>Cyber-Forensic Acquisition Report</h1>
+                <h1>Forensic Disk Acquisition Dashboard</h1>
                 <div style="margin-top: 8px; font-size: 18px; font-weight: 600; color: var(--primary);">Case: {{CASE_NUMBER}} | Evidence ID: {{EVIDENCE_ID}}</div>
+                <div class="controls">
+                    <button class="btn" id="theme-toggle">Toggle Light Mode</button>
+                </div>
             </div>
             <div class="header-meta">
                 <div><strong>Examiner:</strong> {{EXAMINER}}</div>
@@ -435,15 +554,15 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             
             <div class="card">
                 <h3>Source Details</h3>
-                <div class="field"><div class="label">DEVICE PATH</div><div class="value data-mono">{{SOURCE_DEVICE}}</div></div>
+                <div class="field"><div class="label">DEVICE PATH</div><div class="value data-mono"><span>{{SOURCE_DEVICE}}</span><button class="copy-btn" title="Copy">📋</button></div></div>
                 <div class="field"><div class="label">HARDWARE MODEL</div><div class="value">{{SOURCE_MODEL}}</div></div>
-                <div class="field"><div class="label">SERIAL NUMBER</div><div class="value data-mono">{{SOURCE_SERIAL}}</div></div>
+                <div class="field"><div class="label">SERIAL NUMBER</div><div class="value data-mono"><span>{{SOURCE_SERIAL}}</span><button class="copy-btn" title="Copy">📋</button></div></div>
                 <div class="field"><div class="label">TOTAL CAPACITY</div><div class="value">{{SOURCE_SIZE_GB}} GB <span style="font-weight:400; color:var(--text-muted); font-size:13px;">({{SOURCE_SIZE_BYTES}} bytes)</span></div></div>
             </div>
 
             <div class="card">
                 <h3>Acquisition Details</h3>
-                <div class="field"><div class="label">DESTINATION FILE</div><div class="value data-mono">{{DEST_FILE}}</div></div>
+                <div class="field"><div class="label">DESTINATION FILE</div><div class="value data-mono"><span>{{DEST_FILE}}</span><button class="copy-btn" title="Copy">📋</button></div></div>
                 <div class="field"><div class="label">START TIME</div><div class="value data-mono">{{START_TIME}}</div></div>
                 <div class="field"><div class="label">END TIME</div><div class="value data-mono">{{END_TIME}}</div></div>
                 <div class="field"><div class="label">TOTAL DURATION</div><div class="value">{{DURATION_FULL}}</div></div>
@@ -451,11 +570,57 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
             </div>
         </div>
 
-        <h3 style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; font-weight: 700; font-size: 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Hash Verification</h3>
-        <div class="hash-table">
-            {{HASHES_HTML}}
+        <div class="hash-section">
+            <div class="hash-header" id="hash-toggle">
+                <h3>Hash Verification</h3>
+                <span id="hash-icon">▼</span>
+            </div>
+            <div class="hash-content-wrapper" id="hash-content">
+                {{HASHES_HTML}}
+            </div>
         </div>
     </div>
+
+    <script>
+        const themeBtn = document.getElementById('theme-toggle');
+        themeBtn.addEventListener('click', () => {
+            const body = document.body;
+            if (body.getAttribute('data-theme') === 'dark') {
+                body.setAttribute('data-theme', 'light');
+                themeBtn.textContent = 'Toggle Dark Mode';
+            } else {
+                body.setAttribute('data-theme', 'dark');
+                themeBtn.textContent = 'Toggle Light Mode';
+            }
+        });
+
+        const hashToggle = document.getElementById('hash-toggle');
+        const hashContent = document.getElementById('hash-content');
+        const hashIcon = document.getElementById('hash-icon');
+        hashToggle.addEventListener('click', () => {
+            if (hashContent.style.display === 'none') {
+                hashContent.style.display = 'block';
+                hashIcon.textContent = '▼';
+            } else {
+                hashContent.style.display = 'none';
+                hashIcon.textContent = '▶';
+            }
+        });
+
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const text = e.target.previousElementSibling.textContent;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    const original = e.target.textContent;
+                    e.target.textContent = '✓';
+                    setTimeout(() => e.target.textContent = original, 2000);
+                } catch (err) {
+                    console.error('Failed to copy', err);
+                }
+            });
+        });
+    </script>
 </body>
 </html>"#;
 
