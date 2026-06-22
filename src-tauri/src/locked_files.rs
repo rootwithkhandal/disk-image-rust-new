@@ -112,42 +112,101 @@ fn copy_file_with_hash(
     dst: &Path,
     algorithms: &[HashAlgorithm],
 ) -> std::result::Result<(u64, HashMap<HashAlgorithm, String>), String> {
-    let mut src_file = std::fs::File::open(src)
-        .map_err(|e| format!("Failed to open {}: {}", src.display(), e))?;
-
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
     }
 
-    let mut dst_file = std::fs::File::create(dst)
-        .map_err(|e| format!("Failed to create {}: {}", dst.display(), e))?;
+    let mut src_file_result = std::fs::File::open(src);
 
-    let mut hashers = MultiHasher::new(algorithms);
-    let mut buf = vec![0u8; 64 * 1024]; // 64 KB chunks
-    let mut total_bytes = 0u64;
-
-    loop {
-        match src_file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                hashers.update(std::sync::Arc::new(buf[..n].to_vec()));
-                dst_file.write_all(&buf[..n])
-                    .map_err(|e| format!("Write error: {}", e))?;
-                total_bytes += n as u64;
-            }
-            Err(e) => {
-                // For locked files, partial read is still valuable
-                if total_bytes > 0 {
-                    break;
-                }
-                return Err(format!("Read error: {}", e));
-            }
+    #[cfg(target_os = "windows")]
+    {
+        if src_file_result.is_err() {
+            // Try enabling backup semantics for directories/special files
+            use std::os::windows::fs::OpenOptionsExt;
+            src_file_result = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
+                .open(src);
         }
     }
 
-    let hashes = hashers.finalize();
-    Ok((total_bytes, hashes))
+    match src_file_result {
+        Ok(mut src_file) => {
+            let mut dst_file = std::fs::File::create(dst)
+                .map_err(|e| format!("Failed to create {}: {}", dst.display(), e))?;
+
+            let mut hashers = MultiHasher::new(algorithms);
+            let mut buf = vec![0u8; 64 * 1024]; // 64 KB chunks
+            let mut total_bytes = 0u64;
+
+            loop {
+                match src_file.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        hashers.update(std::sync::Arc::new(buf[..n].to_vec()));
+                        dst_file.write_all(&buf[..n])
+                            .map_err(|e| format!("Write error: {}", e))?;
+                        total_bytes += n as u64;
+                    }
+                    Err(e) => {
+                        // For locked files, partial read is still valuable
+                        if total_bytes > 0 {
+                            break;
+                        }
+                        return Err(format!("Read error: {}", e));
+                    }
+                }
+            }
+
+            let hashes = hashers.finalize();
+            Ok((total_bytes, hashes))
+        }
+        Err(e) => {
+            #[cfg(target_os = "windows")]
+            {
+                // Fallback to esentutl for heavily locked files like $MFT that require SeBackupPrivilege
+                let src_str = src.to_str().unwrap_or("");
+                let dst_str = dst.to_str().unwrap_or("");
+                
+                if !src_str.is_empty() && !dst_str.is_empty() {
+                    let status = std::process::Command::new("esentutl.exe")
+                        .args(["/y", src_str, "/d", dst_str, "/o"])
+                        .output();
+                        
+                    if let Ok(out) = status {
+                        if out.status.success() {
+                            // Successfully copied via esentutl. Now compute hash and get size from dst.
+                            let mut hashers = MultiHasher::new(algorithms);
+                            let mut buf = vec![0u8; 64 * 1024];
+                            let mut total_bytes = 0u64;
+                            
+                            let mut dst_read = std::fs::File::open(dst)
+                                .map_err(|err| format!("Failed to open copied file for hashing: {}", err))?;
+                                
+                            loop {
+                                match dst_read.read(&mut buf) {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        hashers.update(std::sync::Arc::new(buf[..n].to_vec()));
+                                        total_bytes += n as u64;
+                                    }
+                                    Err(err) => return Err(format!("Read error during hashing: {}", err)),
+                                }
+                            }
+                            
+                            let hashes = hashers.finalize();
+                            return Ok((total_bytes, hashes));
+                        } else {
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            return Err(format!("Failed to open {}: {} (esentutl fallback failed: {})", src.display(), e, stdout.trim()));
+                        }
+                    }
+                }
+            }
+            Err(format!("Failed to open {}: {}", src.display(), e))
+        }
+    }
 }
 
 /// Copy all configured locked files from the system.
