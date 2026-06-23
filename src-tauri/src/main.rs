@@ -6,6 +6,7 @@ mod output;
 mod report;
 mod state;
 mod error;
+mod format;
 mod platform;
 mod memory;
 mod locked_files;
@@ -138,7 +139,7 @@ fn clear_active_task(app_handle: &AppHandle) {
 fn format_ext(mode: &str) -> &'static str {
     if mode.contains("EX01") { "ex01" }
     else if mode.contains("E01") { "e01" }
-    else if mode.contains("AFF") { "aff" }
+    else if mode.contains("AFF") { "aff4" }
     else if mode.contains("SMART") { "smart" }
     else { "dd" }
 }
@@ -392,6 +393,11 @@ async fn start_acquisition(
                 config.compression,
                 config_input.resume_mode,
                 config_input.sparse,
+                &config_input.format_mode,
+                &config.case_number,
+                &config.examiner,
+                &config.evidence_id,
+                &config.notes,
             ) {
                 Ok(w) => w,
                 Err(e) => {
@@ -827,7 +833,18 @@ async fn start_live_acquisition(
                             keywords: Vec::new(),
                         };
 
-                        match crate::output::OutputWriter::new(&vss_dest_path, None, config.compression, false, false) {
+                        match crate::output::OutputWriter::new(
+                            &vss_dest_path, 
+                            None, 
+                            config.compression, 
+                            false, 
+                            false,
+                            "RAW",
+                            &config_input.case_number,
+                            &config_input.examiner,
+                            &config_input.evidence_id,
+                            &config_input.notes,
+                        ) {
                             Ok(dest_writer) => {
                                 let checkpoint_path = dest_dir.join("vss_image.json");
                                 match crate::acquisition::acquire(

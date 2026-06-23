@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use zstd::Encoder as ZstdEncoder;
+use crate::format::{FormatWriter, Aff4Writer, EwfWriter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionFormat {
@@ -37,6 +38,8 @@ fn mark_sparse(file: &File) {
 enum WriterKind {
     Raw(File),
     Compressed(Box<dyn Write + Send>),
+    Aff4(Aff4Writer),
+    Ewf(EwfWriter),
 }
 
 impl WriterKind {
@@ -44,6 +47,8 @@ impl WriterKind {
         match self {
             WriterKind::Raw(f) => f,
             WriterKind::Compressed(w) => w.as_mut(),
+            WriterKind::Aff4(_) => unimplemented!("Aff4 uses FormatWriter API directly"),
+            WriterKind::Ewf(_) => unimplemented!("Ewf uses FormatWriter API directly"),
         }
     }
 
@@ -53,13 +58,18 @@ impl WriterKind {
                 use std::io::Seek;
                 f.seek(std::io::SeekFrom::Current(n as i64))?;
             }
-            WriterKind::Compressed(w) => {
-                // ponytail: can't seek a compressed stream; zero-fill instead. Static buf avoids per-call alloc.
+            _ => {
+                // For compressed or format writers, zero-fill.
                 const ZEROS: [u8; 65536] = [0u8; 65536];
                 let mut rem = n;
                 while rem > 0 {
                     let chunk = rem.min(ZEROS.len());
-                    w.write_all(&ZEROS[..chunk])?;
+                    match self {
+                        WriterKind::Aff4(a) => a.write_all(&ZEROS[..chunk])?,
+                        WriterKind::Ewf(e) => e.write_all(&ZEROS[..chunk])?,
+                        WriterKind::Compressed(w) => w.write_all(&ZEROS[..chunk])?,
+                        _ => unreachable!(),
+                    }
                     rem -= chunk;
                 }
             }
@@ -68,11 +78,48 @@ impl WriterKind {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.as_write().flush()
+        match self {
+            WriterKind::Raw(f) => f.flush(),
+            WriterKind::Compressed(w) => w.flush(),
+            WriterKind::Aff4(a) => a.flush(),
+            WriterKind::Ewf(e) => e.flush(),
+        }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        match self {
+            WriterKind::Raw(f) => f.write_all(buf),
+            WriterKind::Compressed(w) => w.write_all(buf),
+            WriterKind::Aff4(a) => a.write_all(buf),
+            WriterKind::Ewf(e) => e.write_all(buf),
+        }
+    }
+
+    fn finalize(&mut self) -> std::io::Result<()> {
+        match self {
+            WriterKind::Aff4(a) => a.finalize(),
+            WriterKind::Ewf(e) => e.finalize(),
+            _ => Ok(()), // Raw/Compressed automatically flush on drop
+        }
     }
 }
 
-fn wrap_writer(file: File, compression: &CompressionFormat) -> std::io::Result<WriterKind> {
+fn wrap_writer(
+    file: File, 
+    path: &Path,
+    compression: &CompressionFormat,
+    format_mode: &str,
+    case: &str,
+    examiner: &str,
+    evidence_id: &str,
+    notes: &str,
+) -> std::io::Result<WriterKind> {
+    if format_mode == "AFF4" || format_mode == "AFF" {
+        return Ok(WriterKind::Aff4(crate::format::Aff4Writer::new(path, case, examiner, notes)?));
+    } else if format_mode == "E01" || format_mode == "EX01" {
+        return Ok(WriterKind::Ewf(crate::format::EwfWriter::new(path, case, examiner, evidence_id, notes)?));
+    }
+
     match compression {
         CompressionFormat::None => Ok(WriterKind::Raw(file)),
         CompressionFormat::Gzip => Ok(WriterKind::Compressed(Box::new(GzEncoder::new(file, Compression::default())))),
@@ -97,6 +144,11 @@ impl OutputWriter {
         compression: CompressionFormat,
         resume: bool,
         sparse: bool,
+        format_mode: &str,
+        case: &str,
+        examiner: &str,
+        evidence_id: &str,
+        notes: &str,
     ) -> std::io::Result<Self> {
         let part = 1;
         let path = if split_size.is_some() {
@@ -126,7 +178,7 @@ impl OutputWriter {
             base_path: base_path.to_path_buf(),
             split_size,
             compression,
-            current_writer: wrap_writer(file, &compression)?,
+            current_writer: wrap_writer(file, &path, &compression, format_mode, case, examiner, evidence_id, notes)?,
             current_part: part,
             bytes_written_part: 0,
             sparse,
@@ -155,9 +207,17 @@ impl OutputWriter {
             _       => return Ok(()),
         };
         let header = format!("{}\nCase Number: {}\nExaminer:    {}\nEvidence ID: {}\nNotes:       {}\nAcquisition: {} Staged Archive\n=======================================================\n", title, case, examiner, evidence_id, notes, format);
-        let w = self.current_writer.as_write();
-        w.write_all(header.as_bytes())?;
-        self.bytes_written_part += header.len() as u64;
+        let header = format!("{}\nCase Number: {}\nExaminer:    {}\nEvidence ID: {}\nNotes:       {}\nAcquisition: {} Staged Archive\n=======================================================\n", title, case, examiner, evidence_id, notes, format);
+        
+        match &mut self.current_writer {
+            WriterKind::Aff4(_) | WriterKind::Ewf(_) => {
+                // Formats like AFF4 or the Mock-EWF write their own metadata natively. No text header needed here.
+            }
+            _ => {
+                self.current_writer.write_all(header.as_bytes())?;
+                self.bytes_written_part += header.len() as u64;
+            }
+        }
         Ok(())
     }
 
@@ -172,7 +232,8 @@ impl OutputWriter {
         let file = File::create(&path)?;
         #[cfg(target_os = "windows")]
         if self.sparse { mark_sparse(&file); }
-        self.current_writer = wrap_writer(file, &self.compression)?;
+        // For multi-part AFF4/E01, advanced logic is required. For now, we fallback to Raw for chunks.
+        self.current_writer = wrap_writer(file, &path, &self.compression, "RAW", "", "", "", "")?;
         self.bytes_written_part = 0;
         Ok(())
     }
@@ -198,7 +259,7 @@ impl OutputWriter {
                 if chunk_is_zero {
                     self.current_writer.seek_forward(chunk_len)?;
                 } else {
-                    self.current_writer.as_write().write_all(chunk)?;
+                    self.current_writer.write_all(chunk)?;
                 }
                 self.bytes_written_part += chunk_len as u64;
                 offset += chunk_len;
@@ -207,7 +268,7 @@ impl OutputWriter {
             if is_zero {
                 self.current_writer.seek_forward(buf.len())?;
             } else {
-                self.current_writer.as_write().write_all(buf)?;
+                self.current_writer.write_all(buf)?;
             }
             self.bytes_written_part += buf.len() as u64;
         }
@@ -218,5 +279,9 @@ impl OutputWriter {
 
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.current_writer.flush()
+    }
+
+    pub fn finalize(&mut self) -> std::io::Result<()> {
+        self.current_writer.finalize()
     }
 }

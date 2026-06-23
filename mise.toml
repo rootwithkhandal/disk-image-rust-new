@@ -10,3 +10,11 @@ description = "Run the forensic imager in release mode (Prompts for Admin)"
 depends = ["build"]
 run = "powershell -Command \"Start-Process -FilePath '.\\target\\release\\forgelens-disk-imager.exe' -Verb RunAs\""
 
+[tasks.commit]
+description = "Commit changes to git"
+run = "git add . && git commit -m 'issue-resolved'"
+
+[tasks.push]
+description = "Push changes to git"
+depends = ["git"]
+run = "git push"

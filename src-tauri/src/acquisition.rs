@@ -117,6 +117,7 @@ pub async fn acquire(
             }
         }
         dest.flush()?;
+        dest.finalize()?;
         Ok(())
     });
     let mut bytes_read: u64 = start_offset;
