@@ -13,6 +13,7 @@ mod locked_files;
 mod consistency;
 mod case_management;
 mod yara_scanner;
+mod pdf_report;
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
 use acquisition::{AcquisitionConfig, ProgressEvent};
@@ -344,6 +345,13 @@ async fn start_acquisition(
                         "Completed",
                     );
 
+                    let _ = tx.send(ProgressEvent::Log("[SYSTEM] Generating PDF Report...".to_string())).await;
+                    if let Err(e) = crate::pdf_report::generate_pdf_report(&config, &result, &start_time_utc, &end_time_utc, &dest_file_path) {
+                        let _ = tx.send(ProgressEvent::Log(format!("[WARNING] Failed to generate PDF report: {}", e))).await;
+                    } else {
+                        let _ = tx.send(ProgressEvent::Log("[SYSTEM] PDF Report generated successfully.".to_string())).await;
+                    }
+
                     let _ = tx.send(ProgressEvent::Finished {
                         bytes_read: result.bytes_read,
                         bad_sectors: 0,
@@ -542,6 +550,13 @@ async fn start_acquisition(
                         &hash_log,
                         "Completed",
                     );
+
+                    let _ = tx.send(ProgressEvent::Log("[SYSTEM] Generating PDF Report...".to_string())).await;
+                    if let Err(e) = crate::pdf_report::generate_pdf_report(&config, &result, &start_time_utc, &chrono::Utc::now(), &dest_file_path) {
+                        let _ = tx.send(ProgressEvent::Log(format!("[WARNING] Failed to generate PDF report: {}", e))).await;
+                    } else {
+                        let _ = tx.send(ProgressEvent::Log("[SYSTEM] PDF Report generated successfully.".to_string())).await;
+                    }
 
                     let _ = tx.send(ProgressEvent::Finished {
                         bytes_read: result.bytes_read,

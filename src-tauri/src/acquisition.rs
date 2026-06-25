@@ -52,6 +52,8 @@ pub struct AcquisitionResult {
     pub bytes_read: u64,
     pub bad_sectors: u64,
     pub hashes: HashMap<HashAlgorithm, String>,
+    pub keyword_hits: Vec<(String, u64)>,
+    pub yara_hits: Vec<(String, Vec<String>, u64)>,
 }
 
 
@@ -80,10 +82,12 @@ pub async fn acquire(
     let (kw_tx, mut kw_rx) = tokio::sync::mpsc::channel::<(u64, std::sync::Arc<Vec<u8>>)>(4);
     let kw_progress_tx = progress_tx.clone();
     let kw_task = tokio::task::spawn_blocking(move || {
+        let mut local_kw_hits = Vec::new();
         while let Some((offset_base, chunk)) = kw_rx.blocking_recv() {
             for kw in &keywords {
                 if let Some(pos) = search_bytes(&chunk, kw.as_bytes()) {
                     let hit_offset = offset_base + pos as u64;
+                    local_kw_hits.push((kw.clone(), hit_offset));
                     let msg = format!("[KEYWORD MATCH] Found keyword '{}' at offset {}", kw, hit_offset);
                     let _ = kw_progress_tx.blocking_send(ProgressEvent::Log(msg));
                     let _ = kw_progress_tx.blocking_send(ProgressEvent::KeywordHit {
@@ -93,6 +97,7 @@ pub async fn acquire(
                 }
             }
         }
+        local_kw_hits
     });
 
     let mut yara_tx_opt = None;
@@ -106,9 +111,11 @@ pub async fn acquire(
                 yara_tx_opt = Some(y_tx);
                 let yara_progress_tx = progress_tx.clone();
                 yara_task = Some(tokio::task::spawn_blocking(move || {
+                    let mut local_yara_hits = Vec::new();
                     while let Some((offset_base, chunk)) = y_rx.blocking_recv() {
                         let hits = crate::yara_scanner::scan_chunk(&rules, &chunk, offset_base);
                         for hit in hits {
+                            local_yara_hits.push((hit.rule_name.clone(), hit.tags.clone(), hit.offset));
                             let msg = format!("[YARA MATCH] Rule '{}' matched at offset {}", hit.rule_name, hit.offset);
                             let _ = yara_progress_tx.blocking_send(ProgressEvent::Log(msg));
                             let _ = yara_progress_tx.blocking_send(ProgressEvent::YaraHit {
@@ -118,6 +125,7 @@ pub async fn acquire(
                             });
                         }
                     }
+                    local_yara_hits
                 }));
             }
             Err(e) => {
@@ -339,15 +347,19 @@ pub async fn acquire(
         crate::error::ForgelensError::Backend(format!("Writing task panic: {}", e))
     })??;
 
-    let _ = kw_task.await;
-    if let Some(t) = yara_task {
-        let _ = t.await;
-    }
+    let final_kw_hits = kw_task.await.unwrap_or_default();
+    let final_yara_hits = if let Some(t) = yara_task {
+        t.await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let result = AcquisitionResult {
         bytes_read,
         bad_sectors,
         hashes: final_hashes,
+        keyword_hits: final_kw_hits,
+        yara_hits: final_yara_hits,
     };
 
     if !bad_sector_map.sectors.is_empty() {
@@ -579,6 +591,8 @@ pub async fn acquire_logical(
         bytes_read,
         bad_sectors: 0,
         hashes: global_hashes,
+        keyword_hits: Vec::new(),
+        yara_hits: Vec::new(),
     };
     
     Ok(result)
