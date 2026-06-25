@@ -31,7 +31,7 @@ pub struct MemoryDumpResult {
 /// Find the memory dumping tool on the system.
 #[cfg(target_os = "windows")]
 fn find_memory_tool(custom_path: &Option<String>) -> Option<PathBuf> {
-    if let Some(ref path) = custom_path {
+    if let Some(path) = custom_path {
         let p = PathBuf::from(path);
         if p.exists() {
             return Some(p);

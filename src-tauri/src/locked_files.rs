@@ -87,7 +87,7 @@ fn default_locked_files() -> Vec<&'static str> {
 
 /// Build the full source path for a locked file.
 fn build_source_path(vss_device_path: &Option<String>, relative_path: &str) -> PathBuf {
-    if let Some(ref vss_path) = vss_device_path {
+    if let Some(vss_path) = vss_device_path {
         // Read through VSS shadow copy to bypass OS locks
         let base = vss_path.trim_end_matches('\\');
         let rel = relative_path.trim_start_matches('\\').trim_start_matches('/');

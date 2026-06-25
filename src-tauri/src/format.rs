@@ -1,5 +1,5 @@
-use std::io::{Write, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::Path;
 use std::fs::File;
 use zip::write::{FileOptions, ZipWriter};
 use zip::CompressionMethod;
@@ -15,7 +15,6 @@ pub trait FormatWriter: Send {
 /// Implements a Zip64 container with RDF/Turtle metadata and Deflate compression.
 pub struct Aff4Writer {
     zip: ZipWriter<File>,
-    urn: String,
 }
 
 impl Aff4Writer {
@@ -50,7 +49,7 @@ impl Aff4Writer {
             .large_file(true); // Zip64 for large evidence
         zip.start_file("image.dd", stream_options)?;
 
-        Ok(Self { zip, urn })
+        Ok(Self { zip })
     }
 }
 

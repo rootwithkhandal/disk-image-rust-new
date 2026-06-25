@@ -6,6 +6,17 @@ use crate::hasher::{HashAlgorithm, MultiHasher};
 use crate::output::OutputWriter;
 use crate::platform::RawDevice;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BadSectorEntry {
+    pub lba: u64,
+    pub retries: u32,
+    pub error_msg: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct BadSectorMap {
+    pub sectors: Vec<BadSectorEntry>,
+}
 
 #[derive(Debug, Clone)]
 pub struct AcquisitionConfig {
@@ -86,7 +97,7 @@ pub async fn acquire(
     let compression = config.compression;
     let writer_progress_tx = progress_tx.clone();
 
-    let writing_task = tokio::task::spawn_blocking(move || -> Result<()> {
+    let writing_task = tokio::task::spawn_blocking(move || -> Result<std::path::PathBuf> {
         while let Some(chunk) = write_rx.blocking_recv() {
             dest.write_all(&chunk)?;
 
@@ -118,7 +129,7 @@ pub async fn acquire(
         }
         dest.flush()?;
         dest.finalize()?;
-        Ok(())
+        Ok(dest.current_part_path())
     });
     let mut bytes_read: u64 = start_offset;
     let mut bad_sectors: u64 = 0;
@@ -144,6 +155,8 @@ pub async fn acquire(
     let ptr = raw_buf.as_ptr() as usize;
     let align_offset = (4096 - (ptr % 4096)) % 4096;
 
+    let mut bad_sector_map = BadSectorMap::default();
+
     loop {
         if bytes_read >= total_size {
             break;
@@ -153,8 +166,8 @@ pub async fn acquire(
             return Err(crate::error::ForgelensError::Cancelled);
         }
 
-        let mut read_success = false;
-        let mut n = 0;
+        let read_success;
+        let n;
 
         let remaining = total_size - bytes_read;
         let current_block_size = if (block_size as u64) > remaining {
@@ -170,18 +183,58 @@ pub async fn acquire(
                 n = bytes;
                 read_success = true;
             }
-            Err(_) => {
-                bad_sectors += 1;
-                // ponytail: always zero-fill bad sectors; Skip/Retry removed as unused.
-                let _ = source.seek_forward(current_block_size as u64);
-                let zeros = std::sync::Arc::new(vec![0u8; current_block_size]);
-                if let Err(_) = hash_tx.send(zeros.clone()).await {
-                    return Err(crate::error::ForgelensError::Backend("Hashing task died unexpectedly".to_string()));
+            Err(_e) => {
+                let _ = progress_tx.send(ProgressEvent::Log(format!(
+                    "[WARNING] Block read failed at offset {}. Dropped down to sector isolation.", bytes_read
+                ))).await;
+                
+                let _ = source.seek_to(bytes_read);
+                // Begin sector-level isolation
+                let mut sector_offset = 0;
+                while sector_offset < current_block_size {
+                    let sector_size = std::cmp::min(512, current_block_size - sector_offset);
+                    let mut sector_buf = vec![0u8; sector_size];
+                    let mut sector_success = false;
+                    let mut retries = 0;
+                    let mut last_err = String::new();
+
+                    while retries < 3 {
+                        match source.read_block(&mut sector_buf) {
+                            Ok(b) if b == sector_size => {
+                                sector_success = true;
+                                break;
+                            }
+                            Ok(b) => {
+                                let _ = source.seek_to(bytes_read + sector_offset as u64);
+                                retries += 1;
+                                last_err = format!("Partial read: {}", b);
+                            }
+                            Err(e_inner) => {
+                                let _ = source.seek_to(bytes_read + sector_offset as u64);
+                                retries += 1;
+                                last_err = format!("I/O Error: {}", e_inner);
+                            }
+                        }
+                    }
+
+                    if sector_success {
+                        active_slice[sector_offset..sector_offset + sector_size].copy_from_slice(&sector_buf);
+                    } else {
+                        bad_sectors += 1;
+                        let lba = (bytes_read + sector_offset as u64) / 512;
+                        bad_sector_map.sectors.push(BadSectorEntry {
+                            lba,
+                            retries,
+                            error_msg: last_err,
+                        });
+                        active_slice[sector_offset..sector_offset + sector_size].fill(0);
+                        let _ = source.seek_forward(sector_size as u64);
+                    }
+                    sector_offset += sector_size;
                 }
-                if let Err(_) = write_tx.send(zeros).await {
-                    return Err(crate::error::ForgelensError::Backend("Writing task died unexpectedly".to_string()));
-                }
-                bytes_read += current_block_size as u64;
+                
+                n = current_block_size;
+                read_success = true;
             }
         }
 
@@ -242,7 +295,7 @@ pub async fn acquire(
         crate::error::ForgelensError::Backend(format!("Hashing task panic: {}", e))
     })?;
 
-    writing_task.await.map_err(|e| {
+    let final_dest_path = writing_task.await.map_err(|e| {
         crate::error::ForgelensError::Backend(format!("Writing task panic: {}", e))
     })??;
 
@@ -253,6 +306,20 @@ pub async fn acquire(
         bad_sectors,
         hashes: final_hashes,
     };
+
+    if !bad_sector_map.sectors.is_empty() {
+        use std::io::Write;
+        let dest_path = final_dest_path;
+        let log_path = dest_path.with_extension("bad_sectors.log");
+        if let Ok(mut log_file) = std::fs::File::create(&log_path) {
+            let _ = writeln!(log_file, "=== FORGELENS BAD SECTOR MAP ===");
+            let _ = writeln!(log_file, "LBA\t\tRETRIES\t\tERROR");
+            for entry in &bad_sector_map.sectors {
+                let _ = writeln!(log_file, "{}\t\t{}\t\t{}", entry.lba, entry.retries, entry.error_msg);
+            }
+            let _ = writeln!(log_file, "Total Bad Sectors: {}", bad_sector_map.sectors.len());
+        }
+    }
 
     Ok(result)
 }

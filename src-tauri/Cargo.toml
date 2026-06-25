@@ -1,7 +1,7 @@
 [package]
 name = "forgelens-disk-imager"
-version = "0.1.14"
-edition = "2021"
+version = "2.0.2"
+edition = "2024"
 
 [dependencies]
 tauri = { version = "2.0.0", features = ["devtools"] }
@@ -13,8 +13,8 @@ serde_json = "1"
 sha2 = "0.10"
 md-5 = "0.10"
 sha1 = "0.10"
-flate2 = "1"           # gzip compression
-zstd = "0.13"          # zstd compression
+flate2 = "1"                                                        # gzip compression
+zstd = "0.13"                                                       # zstd compression
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde"] }

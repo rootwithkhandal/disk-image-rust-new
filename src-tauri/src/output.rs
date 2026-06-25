@@ -43,14 +43,7 @@ enum WriterKind {
 }
 
 impl WriterKind {
-    fn as_write(&mut self) -> &mut dyn Write {
-        match self {
-            WriterKind::Raw(f) => f,
-            WriterKind::Compressed(w) => w.as_mut(),
-            WriterKind::Aff4(_) => unimplemented!("Aff4 uses FormatWriter API directly"),
-            WriterKind::Ewf(_) => unimplemented!("Ewf uses FormatWriter API directly"),
-        }
-    }
+
 
     fn seek_forward(&mut self, n: usize) -> std::io::Result<()> {
         match self {
@@ -206,7 +199,6 @@ impl OutputWriter {
             "SMART" => "=== SMART FORENSIC IMAGE HEADER (SMART) ===",
             _       => return Ok(()),
         };
-        let header = format!("{}\nCase Number: {}\nExaminer:    {}\nEvidence ID: {}\nNotes:       {}\nAcquisition: {} Staged Archive\n=======================================================\n", title, case, examiner, evidence_id, notes, format);
         let header = format!("{}\nCase Number: {}\nExaminer:    {}\nEvidence ID: {}\nNotes:       {}\nAcquisition: {} Staged Archive\n=======================================================\n", title, case, examiner, evidence_id, notes, format);
         
         match &mut self.current_writer {
