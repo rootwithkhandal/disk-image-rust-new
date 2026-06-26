@@ -1,0 +1,18 @@
+[package]
+name = "forgelens-core"
+version = "0.2.0"
+edition = "2021"
+authors = ["ForgeLens Team"]
+description = "High-performance volatile memory dump analysis engine with full forensic capabilities"
+
+[dependencies]
+memmap2 = "0.9.4"
+rayon = "1.10.0"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.120"
+goblin = "0.8.2"
+chrono = { version = "0.4.38", features = ["serde"] }
+regex = "1.10.5"
+log = "0.4.22"
+thiserror = "1.0.61"
+byteorder = "1.5.0"

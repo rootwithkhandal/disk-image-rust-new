@@ -1,0 +1,12 @@
+[package]
+name = "forgelens-acquire"
+version = "0.1.0"
+edition = "2021"
+authors = ["ForgeLens Team"]
+description = "Standalone, zero-dependency, stealth memory acquisition companion tool for ForgeLens"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+log = "0.4.22"
+env_logger = "0.11.3"
+winapi = { version = "0.3.9", features = ["winnt", "handleapi", "memoryapi", "fileapi", "ioapiset", "errhandlingapi", "processthreadsapi", "sysinfoapi"] }

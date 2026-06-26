@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>ForgeLens Memory Forensics</title>
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com" rel="preconnect"/>
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Outfit:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-primary-fixed-variant": "#004395",
+                        "on-primary-fixed": "#001a42",
+                        "on-error": "#690005",
+                        "error-container": "#93000a",
+                        "on-primary-container": "#00285d",
+                        "on-secondary": "#003919",
+                        "surface-dim": "#131315",
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "primary-fixed": "#d8e2ff",
+                        "tertiary-container": "#ff5451",
+                        "on-primary": "#002e6a",
+                        "on-tertiary": "#68000a",
+                        "surface-container": "#201f22",
+                        "secondary-container": "#00b55d",
+                        "on-tertiary-fixed": "#410004",
+                        "tertiary-fixed": "#ffdad7",
+                        "on-error-container": "#ffdad6",
+                        "primary": "#adc6ff",
+                        "background": "#131315",
+                        "on-background": "#e5e1e4",
+                        "on-secondary-fixed-variant": "#005227",
+                        "inverse-surface": "#e5e1e4",
+                        "outline-variant": "#424754",
+                        "on-surface-variant": "#c2c6d6",
+                        "inverse-primary": "#005ac2",
+                        "outline": "#8c909f",
+                        "on-secondary-fixed": "#00210c",
+                        "error": "#ffb4ab",
+                        "surface": "#131315",
+                        "secondary": "#4de082",
+                        "on-secondary-container": "#003e1c",
+                        "primary-container": "#4d8eff",
+                        "secondary-fixed-dim": "#4de082",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "surface-container-low": "#1c1b1d",
+                        "on-surface": "#e5e1e4",
+                        "tertiary": "#ffb3ad",
+                        "surface-tint": "#adc6ff",
+                        "inverse-on-surface": "#313032",
+                        "primary-fixed-dim": "#adc6ff",
+                        "surface-container-high": "#2a2a2c",
+                        "surface-container-highest": "#353437"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    spacing: {
+                        "row-height-dense": "32px",
+                        "container-padding": "24px",
+                        "unit": "4px",
+                        "gutter": "16px",
+                        "row-height-standard": "48px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["Inter", "sans-serif"],
+                        "label-caps": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"],
+                        "display": ["Outfit", "sans-serif"],
+                        "headline-lg": ["Outfit", "sans-serif"],
+                        "mono-data": ["JetBrains Mono", "monospace"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "headline-md": ["Outfit", "sans-serif"]
+                    },
+                    fontSize: {
+                        "body-sm": ["13px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "label-caps": ["11px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "display": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "1.2", "fontWeight": "600"}],
+                        "mono-data": ["12px", {"lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "500"}]
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 350, 'GRAD' 0, 'opsz' 20;
+        }
+        
+        /* Premium Background */
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+        }
+
+        /* Scanline Overlay Effect */
+        .scanline {
+            width: 100%;
+            height: 100px;
+            z-index: 10;
+            background: linear-gradient(0deg, rgba(173, 198, 255, 0) 0%, rgba(173, 198, 255, 0.03) 50%, rgba(173, 198, 255, 0) 100%);
+            opacity: 0.15;
+            position: absolute;
+            bottom: 100%;
+            animation: scanline 12s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes scanline {
+            0% { bottom: 100%; }
+            100% { bottom: -100px; }
+        }
+
+        /* Glassmorphic panels */
+        .glass-panel {
+            background: rgba(28, 27, 34, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .glass-panel-alert {
+            background: rgba(28, 27, 34, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 84, 81, 0.25);
+            box-shadow: 0 0 15px rgba(255, 84, 81, 0.08);
+        }
+
+        /* Heatmap grid layout */
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(20, 1fr);
+            gap: 3px;
+        }
+        .heatmap-cell {
+            aspect-ratio: 1;
+            border-radius: 1px;
+            transition: all 0.2s ease;
+        }
+        .heatmap-cell:hover {
+            transform: scale(1.25);
+            z-index: 10;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+        }
+
+        /* Radar scan overlays */
+        .scan-overlay {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: rgba(173, 198, 255, 0.4);
+            box-shadow: 0 0 10px rgba(173, 198, 255, 0.6);
+            animation: scan-line 4s linear infinite;
+        }
+        @keyframes scan-line {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scanning-pulse {
+            animation: pulse-ring 2.5s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(173, 198, 255, 0.6); }
+            70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(173, 198, 255, 0); }
+            100% { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(173, 198, 255, 0); }
+        }
+        .pulse-dot {
+            animation: pulse-kf 2s infinite;
+        }
+        @keyframes pulse-kf {
+            0%, 100% { transform: scale(0.95); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.6; }
+        }
+
+        /* Hex viewer cells */
+        .hex-cell {
+            transition: all 0.15s ease;
+        }
+        .hex-cell:hover {
+            background-color: rgba(77, 142, 255, 0.25);
+            color: #adc6ff;
+            cursor: pointer;
+        }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #424754;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #8c909f;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md h-screen w-screen overflow-hidden flex flex-col antialiased selection:bg-primary-container/30 selection:text-primary">
+    <!-- Scanline Effect -->
+    <div class="scanline"></div>
+
+    <!-- TopNavBar -->
+    <nav class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-container-padding h-row-height-standard bg-surface/80 backdrop-blur-xl border-b border-white/10 shadow-sm transition-colors duration-150">
+        <div class="flex items-center gap-4">
+            <span class="font-display text-headline-md font-bold text-primary tracking-tight">ForgeLens Memory Forensics</span>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-3 text-on-surface-variant">
+                <button class="hover:bg-white/5 transition-colors active:scale-95 duration-150 p-2 rounded-full flex items-center justify-center">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">schedule</span>
+                </button>
+                <button class="hover:bg-white/5 transition-colors active:scale-95 duration-150 p-2 rounded-full flex items-center justify-center">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">sensors</span>
+                </button>
+                <button class="hover:bg-white/5 transition-colors active:scale-95 duration-150 p-2 rounded-full flex items-center justify-center">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">settings</span>
+                </button>
+            </div>
+            <div class="flex items-center gap-3 border-l border-white/10 pl-6">
+                <input id="dump-path-input" class="hidden" type="text" value="test.raw"/>
+                <button id="load-dump-btn" class="bg-primary text-on-primary font-label-caps text-label-caps px-4 py-2 rounded-full hover:bg-primary/90 transition-all active:scale-95 duration-150 flex items-center gap-2 shadow-[0_0_15px_rgba(173,198,255,0.2)]">
+                    <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1; font-size: 18px;">upload</span>
+                    Load Memory Dump
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Layout Container -->
+    <div class="flex h-full w-full pt-row-height-standard">
+        <!-- SideNavBar -->
+        <aside class="fixed left-0 top-0 bottom-0 z-40 flex flex-col pt-row-height-standard bg-surface-container/80 backdrop-blur-2xl border-r border-white/10 shadow-xl w-64">
+            <div class="p-container-padding pb-6 flex flex-col gap-1 border-b border-white/5">
+                <h2 class="font-display text-headline-sm font-semibold text-primary">ForgeLens</h2>
+                <span class="font-body-sm text-body-sm text-on-surface-variant">Precision Forensics</span>
+            </div>
+            
+            <nav class="flex-1 overflow-y-auto py-4 flex flex-col gap-1 px-3" id="sidebar-nav">
+                <!-- Dashboard -->
+                <a href="#" data-tab="dashboard" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-container/20 text-primary border-r-4 border-primary transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+                    <span class="font-label-caps text-label-caps uppercase">Dashboard</span>
+                </a>
+                <!-- Process List -->
+                <a href="#" data-tab="processes" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">memory</span>
+                    <span class="font-label-caps text-label-caps uppercase">Process List</span>
+                </a>
+                <!-- Network Sockets -->
+                <a href="#" data-tab="network" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">lan</span>
+                    <span class="font-label-caps text-label-caps uppercase">Network Sockets</span>
+                </a>
+                <!-- Memory Scanner -->
+                <a href="#" data-tab="scanner" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">radar</span>
+                    <span class="font-label-caps text-label-caps uppercase">Memory Scanner</span>
+                </a>
+                <!-- Registry Hive -->
+                <a href="#" data-tab="registry" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">database</span>
+                    <span class="font-label-caps text-label-caps uppercase">Registry Hive</span>
+                </a>
+                <!-- Kernel Hooks -->
+                <a href="#" data-tab="kernel" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">anchor</span>
+                    <span class="font-label-caps text-label-caps uppercase">Kernel Hooks</span>
+                </a>
+                <!-- Timeline -->
+                <a href="#" data-tab="timeline" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">timeline</span>
+                    <span class="font-label-caps text-label-caps uppercase">Timeline</span>
+                </a>
+                <!-- Hex Viewer -->
+                <a href="#" data-tab="hexview" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">code</span>
+                    <span class="font-label-caps text-label-caps uppercase">Hex Viewer</span>
+                </a>
+                <!-- DLL Analysis -->
+                <a href="#" data-tab="dlls" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">extension</span>
+                    <span class="font-label-caps text-label-caps uppercase">DLL Analysis</span>
+                </a>
+                <!-- Thread Analysis -->
+                <a href="#" data-tab="threads" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">linear_scale</span>
+                    <span class="font-label-caps text-label-caps uppercase">Thread Analysis</span>
+                </a>
+                <!-- Credentials -->
+                <a href="#" data-tab="credentials" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">key</span>
+                    <span class="font-label-caps text-label-caps uppercase">Credentials</span>
+                </a>
+                <!-- File Recovery -->
+                <a href="#" data-tab="file-recovery" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">restore</span>
+                    <span class="font-label-caps text-label-caps uppercase">File Recovery</span>
+                </a>
+                <!-- YARA / IOC -->
+                <a href="#" data-tab="yara" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">track_changes</span>
+                    <span class="font-label-caps text-label-caps uppercase">YARA / IOC</span>
+                </a>
+                <!-- Malware Analysis -->
+                <a href="#" data-tab="malware" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">bug_report</span>
+                    <span class="font-label-caps text-label-caps uppercase">Malware Analysis</span>
+                </a>
+                <!-- Report Export -->
+                <a href="#" data-tab="reporting" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-200 ease-in-out font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[20px]">description</span>
+                    <span class="font-label-caps text-label-caps uppercase">Report Export</span>
+                </a>
+            </nav>
+
+            <div class="mt-auto px-4 py-6 border-t border-white/5">
+                <div class="bg-surface-container/60 p-3 rounded-xl border border-white/5 flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-full bg-surface-bright flex items-center justify-center border border-outline-variant">
+                        <span class="material-symbols-outlined text-primary" style="font-size: 18px;">person</span>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-on-surface">DFIR_OPERATOR</p>
+                        <p class="text-[9px] text-primary uppercase font-label-caps">AUTH_VERIFIED</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 ml-64 p-container-padding overflow-y-auto w-full relative flex flex-col">
+            <!-- Sub-Header with search filter -->
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <div class="text-left">
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Tauri Forensics Session</p>
+                    <p id="system-clock" class="text-xs text-secondary font-mono-data">SYS_CLK: 00:00:00 UTC</p>
+                </div>
+                <div class="flex items-center gap-3 bg-surface-container-high/50 backdrop-blur-md border border-white/5 rounded-full px-4 py-2">
+                    <span class="material-symbols-outlined text-outline-variant" style="font-size: 18px;">search</span>
+                    <input id="search-input" class="bg-transparent border-none text-on-surface font-body-sm text-body-sm placeholder:text-outline focus:ring-0 w-64 h-6 p-0" placeholder="Filter evidence artifacts..." type="text"/>
+                </div>
+            </div>
+
+            <!-- Dynamic Content Canvas -->
+            <div class="flex-1 space-y-6" id="app-canvas">
+                
+                <!-- TAB: DASHBOARD -->
+                <div id="tab-dashboard" class="tab-content active space-y-6">
+                    <!-- Telemetry Cards Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- OS Info -->
+                        <div class="glass-panel rounded-xl p-5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-primary/10 transition-colors"></div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Target OS</span>
+                                <span class="material-symbols-outlined text-outline text-[20px]">computer</span>
+                            </div>
+                            <div id="dash-os-family" class="font-display text-headline-md font-bold text-on-surface mb-1">None</div>
+                            <div id="dash-os-ver" class="font-mono-data text-mono-data text-primary">No active image loaded</div>
+                        </div>
+                        <!-- CR3 / DTB -->
+                        <div class="glass-panel rounded-xl p-5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-secondary/5 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-secondary/10 transition-colors"></div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Kernel DTB/CR3</span>
+                                <span class="material-symbols-outlined text-outline text-[20px]">memory_alt</span>
+                            </div>
+                            <div id="telemetry-cr3" class="font-display text-headline-md font-bold text-secondary mb-1">0x0</div>
+                            <div class="font-body-sm text-body-sm text-on-surface-variant">Directory Table Base</div>
+                        </div>
+                        <!-- Processes -->
+                        <div class="glass-panel rounded-xl p-5 relative overflow-hidden group">
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Active Processes</span>
+                                <span class="material-symbols-outlined text-outline text-[20px]">account_tree</span>
+                            </div>
+                            <div class="flex items-baseline gap-2 mb-1">
+                                <div id="dash-proc-count" class="font-display text-headline-md font-bold text-on-surface">0</div>
+                            </div>
+                            <div id="dash-unlinked-alert" class="font-body-sm text-body-sm text-success font-medium">✓ DKOM checks verified</div>
+                        </div>
+                        <!-- Sockets -->
+                        <div class="glass-panel rounded-xl p-5 relative overflow-hidden group">
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Network Sockets</span>
+                                <span class="material-symbols-outlined text-outline text-[20px]">public</span>
+                            </div>
+                            <div class="flex items-baseline gap-2 mb-1">
+                                <div id="dash-conn-count" class="font-display text-headline-md font-bold text-on-surface">0</div>
+                            </div>
+                            <div class="font-body-sm text-body-sm text-on-surface-variant">Active Sockets Count</div>
+                        </div>
+                    </div>
+
+                    <!-- Bento Grid Middle Section -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Alert Panel -->
+                        <div class="lg:col-span-1 glass-panel-alert rounded-xl p-5 flex flex-col h-full">
+                            <div class="flex items-center justify-between mb-4 pb-4 border-b border-white/5">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-tertiary-container" style="font-variation-settings: 'FILL' 1;">warning</span>
+                                    <h2 class="font-label-caps text-label-caps text-tertiary-container uppercase tracking-wider">Kernel Alerts</h2>
+                                </div>
+                                <span id="dash-alerts-count" class="bg-tertiary-container/20 text-tertiary-container px-2 py-0.5 rounded font-mono-data text-xs">0</span>
+                            </div>
+                            <div class="flex-1 flex flex-col justify-center items-center text-center py-6">
+                                <div id="dash-alerts-desc" class="font-body-md text-body-md text-on-surface-variant">No anomalies reported</div>
+                            </div>
+                            <!-- Dynamic SSDT summary inside Kernel Alerts tab when active -->
+                            <div class="space-y-2 mt-auto" id="dashboard-hooks-summary">
+                                <!-- Populated dynamically by kernel analysis hooks -->
+                            </div>
+                        </div>
+
+                        <!-- Entropy Heatmap Panel -->
+                        <div class="lg:col-span-2 glass-panel rounded-xl p-5 flex flex-col">
+                            <div class="flex justify-between items-center mb-6">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-primary text-[20px]">grid_4x4</span>
+                                    <h2 class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Page Entropy Map</h2>
+                                </div>
+                                <div class="flex items-center gap-4 font-mono-data text-[10px] text-on-surface-variant">
+                                    <div class="flex items-center gap-1"><div class="w-2 h-2 bg-secondary/80 rounded-sm"></div> Low</div>
+                                    <div class="flex items-center gap-1"><div class="w-2 h-2 bg-primary/80 rounded-sm"></div> Med</div>
+                                    <div class="flex items-center gap-1"><div class="w-2 h-2 bg-error/80 rounded-sm"></div> High</div>
+                                </div>
+                            </div>
+                            <div class="flex-1 bg-surface-container-lowest/50 rounded-lg border border-white/5 p-4 flex flex-col justify-center">
+                                <div class="heatmap-grid" id="entropy-grid">
+                                    <!-- Entropy map nodes -->
+                                </div>
+                                <div class="mt-4 flex justify-between font-mono-data text-[10px] text-outline">
+                                    <span>0x00000000</span>
+                                    <span id="telemetry-format">Auto-detected Format</span>
+                                    <span id="telemetry-build">Build: N/A</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: PROCESSES -->
+                <div id="tab-processes" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Active & Hidden Processes</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Cross-referencing EPROCESS active process links to expose DKOM rootkits.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-[#18181B]/80 backdrop-blur-[20px] rounded-xl border border-white/10 overflow-hidden shadow-lg flex flex-col">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-white/10 text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider bg-surface-container-low/50">
+                                        <th class="px-6 py-4 font-semibold w-24">Status</th>
+                                        <th class="px-6 py-4 font-semibold w-24">PID</th>
+                                        <th class="px-6 py-4 font-semibold w-24">PPID</th>
+                                        <th class="px-6 py-4 font-semibold">Image Name</th>
+                                        <th class="px-6 py-4 font-semibold">Directory Table Base (CR3)</th>
+                                        <th class="px-6 py-4 font-semibold text-right w-44">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="processes-table-body" class="font-body-sm text-body-sm text-on-surface divide-y divide-white/5">
+                                    <!-- Process rows populated dynamically -->
+                                    <tr>
+                                        <td colspan="6" class="p-6 text-center text-on-surface-variant">No processes loaded. Please load a memory dump first.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: NETWORK -->
+                <div id="tab-network" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Network Sockets</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Active TCP and UDP network sockets extracted from memory blocks.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-[#18181B]/80 backdrop-blur-[20px] rounded-xl border border-white/10 overflow-hidden shadow-lg flex flex-col">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-white/10 text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider bg-surface-container-low/50">
+                                        <th class="px-6 py-4 font-semibold w-24">Protocol</th>
+                                        <th class="px-6 py-4 font-semibold w-24">PID</th>
+                                        <th class="px-6 py-4 font-semibold w-[25%]">Process Name</th>
+                                        <th class="px-6 py-4 font-semibold">Local Address</th>
+                                        <th class="px-6 py-4 font-semibold">Foreign Address</th>
+                                        <th class="px-6 py-4 font-semibold w-32">State</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="network-table-body" class="font-mono-data text-mono-data text-on-surface divide-y divide-white/5">
+                                    <!-- Network connection rows populated dynamically -->
+                                    <tr>
+                                        <td colspan="6" class="p-6 text-center text-on-surface-variant">No sockets loaded. Please load a memory dump first.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: MALWARE SCANNER -->
+                <div id="tab-scanner" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Memory Space Scanner</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Walk process page tables and scan virtual memory ranges for threat patterns.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 grid grid-cols-12 gap-gutter min-h-0">
+                        <!-- Settings Panel (Left) -->
+                        <div class="col-span-12 lg:col-span-3 flex flex-col gap-gutter">
+                            <div class="bg-surface-container/80 backdrop-blur-xl rounded-xl border border-white/10 p-5 flex flex-col shadow-lg relative overflow-hidden h-full">
+                                <h3 class="font-label-caps text-label-caps text-primary border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-sm">tune</span>
+                                    Scan Parameters
+                                </h3>
+                                <div class="flex flex-col gap-5 flex-1">
+                                    <div class="flex flex-col gap-2">
+                                        <label class="font-mono-data text-[11px] text-on-surface-variant">Target Process DTB (CR3)</label>
+                                        <div id="scanner-active-dtb" class="bg-surface-dim border border-outline-variant rounded p-3 text-on-surface font-mono-data text-sm text-primary">0x0</div>
+                                    </div>
+                                    <div class="flex flex-col gap-2">
+                                        <label class="font-mono-data text-[11px] text-on-surface-variant">Address Range</label>
+                                        <div class="flex items-center gap-2">
+                                            <input class="bg-surface-dim border border-outline-variant rounded p-1.5 text-on-surface font-mono-data text-xs w-full text-center focus:ring-1 focus:ring-primary focus:border-primary" type="text" value="0x00400000"/>
+                                            <span class="text-on-surface-variant">-</span>
+                                            <input class="bg-surface-dim border border-outline-variant rounded p-1.5 text-on-surface font-mono-data text-xs w-full text-center focus:ring-1 focus:ring-primary focus:border-primary" type="text" value="0x02000000"/>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-3 mt-2">
+                                        <label class="font-mono-data text-[11px] text-on-surface-variant border-b border-white/5 pb-1">Heuristics</label>
+                                        <label class="flex items-center gap-3 cursor-pointer group">
+                                            <input checked class="rounded border-outline-variant bg-surface-dim text-primary focus:ring-primary focus:ring-offset-0" type="checkbox"/>
+                                            <span class="font-mono-data text-xs text-on-surface-variant group-hover:text-primary transition-colors">Scan for RWX pages</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer group">
+                                            <input checked class="rounded border-outline-variant bg-surface-dim text-primary focus:ring-primary focus:ring-offset-0" type="checkbox"/>
+                                            <span class="font-mono-data text-xs text-on-surface-variant group-hover:text-primary transition-colors">YARA Rules Scan</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="mt-8 pt-4 border-t border-white/10">
+                                    <button id="scan-memory-btn" class="w-full bg-primary text-on-primary py-3 rounded font-display font-medium text-sm hover:bg-primary-fixed-dim transition-all active:scale-95 duration-150 flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(173,198,255,0.3)]">
+                                        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1; font-size: 18px;">play_arrow</span>
+                                        INITIATE SCAN
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Scan Results Panel (Right) -->
+                        <div class="col-span-12 lg:col-span-9 flex flex-col gap-gutter">
+                            <!-- Scanner Progress Widget -->
+                            <div class="bg-surface-container/80 backdrop-blur-xl rounded-xl border border-white/10 p-4 shadow-lg h-28 shrink-0 relative overflow-hidden flex items-center px-6">
+                                <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(0deg, transparent, transparent 1px, #fff 1px, #fff 2px); background-size: 100% 4px;"></div>
+                                <div id="scan-loader" class="hidden">
+                                    <div class="scan-overlay"></div>
+                                </div>
+                                <div class="flex-1 z-10 flex items-center justify-between">
+                                    <div class="flex items-center gap-4">
+                                        <div class="relative w-12 h-12 rounded-full bg-surface-dim border border-primary/30 flex items-center justify-center">
+                                            <div class="absolute inset-0 rounded-full scanning-pulse border border-primary/40"></div>
+                                            <span class="material-symbols-outlined text-primary text-2xl">radar</span>
+                                        </div>
+                                        <div class="flex flex-col">
+                                            <span class="font-mono-data text-mono-data text-primary text-[10px] mb-0.5">FORENSIC RADAR</span>
+                                            <span class="font-display text-lg text-on-surface">Page Table Scanner</span>
+                                            <span class="font-mono-data text-[11px] text-on-surface-variant">Awaiting scan initiation...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Results Table -->
+                            <div class="bg-surface-container/80 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg flex-1 overflow-hidden flex flex-col">
+                                <div class="overflow-y-auto max-h-[500px]">
+                                    <table class="w-full text-left border-collapse">
+                                        <thead class="sticky top-0 bg-surface-container z-10 shadow-sm border-b border-white/10">
+                                            <tr class="font-label-caps text-label-caps text-on-surface-variant bg-surface-container-low/50">
+                                                <th class="p-4 font-semibold w-12"></th>
+                                                <th class="p-4 font-semibold">Virtual Address</th>
+                                                <th class="p-4 font-semibold">Physical Address</th>
+                                                <th class="p-4 font-semibold text-center w-20">RWX</th>
+                                                <th class="p-4 font-semibold text-center w-24">MZ Header</th>
+                                                <th class="p-4 font-semibold w-24">Entropy</th>
+                                                <th class="p-4 font-semibold">Description</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="scanner-table-body" class="font-mono-data text-[13px] text-on-surface divide-y divide-white/5">
+                                            <tr>
+                                                <td colspan="7" class="p-6 text-center text-on-surface-variant">Click INITIATE SCAN to run heuristic checks.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: REGISTRY -->
+                <div id="tab-registry" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Registry Persistence Keys</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Carved autostart persistence mechanisms from Registry Hives (SAM, SOFTWARE, SYSTEM).</p>
+                        </div>
+                    </div>
+
+                    <div id="registry-keys-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Registry Key Blocks populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- TAB: KERNEL FORENSICS -->
+                <div id="tab-kernel" class="tab-content space-y-6">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Kernel Hooks & Drivers</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Inspect System Service Descriptor Table (SSDT) modifications and verify driver signatures.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-gutter">
+                        <!-- Left Alerts Column -->
+                        <div class="xl:col-span-7 flex flex-col gap-4">
+                            <h3 class="font-label-caps text-on-surface-variant border-b border-outline-variant/30 pb-2">SSDT Hooks Integrity Alerts</h3>
+                            <div id="kernel-hooks-container" class="space-y-3">
+                                <!-- Hooks populated dynamically -->
+                            </div>
+                        </div>
+                        <!-- Right Drivers Column -->
+                        <div class="xl:col-span-5 flex flex-col gap-4">
+                            <h3 class="font-label-caps text-on-surface-variant border-b border-outline-variant/30 pb-2">Loaded Driver Modules</h3>
+                            <div class="bg-surface-container/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden shadow-lg">
+                                <div class="overflow-y-auto max-h-[400px]">
+                                    <table class="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr class="border-b border-white/10 font-label-caps text-label-caps text-on-surface-variant bg-surface-container-low/50">
+                                                <th class="px-4 py-3 font-semibold">Driver Name</th>
+                                                <th class="px-4 py-3 font-semibold">Base Address</th>
+                                                <th class="px-4 py-3 font-semibold">Size</th>
+                                                <th class="px-4 py-3 font-semibold">Path</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="kernel-drivers-body" class="font-mono-data text-xs text-on-surface divide-y divide-white/5">
+                                            <!-- Drivers populated dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: TIMELINE -->
+                <div id="tab-timeline" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Forensic Activity Timeline</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Chronological trace of parsed process creations, socket states, and registry modifications.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface-container/60 border border-white/5 rounded-xl p-6 relative">
+                        <div id="timeline-container" class="space-y-4 max-w-4xl mx-auto flex flex-col">
+                            <!-- Timeline elements populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: HEX VIEWER -->
+                <div id="tab-hexview" class="tab-content space-y-4">
+                    <div class="flex justify-between items-center shrink-0">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Raw Memory Hex Viewer</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Inspect physical RAM dump offsets directly.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface-container/80 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg p-5 flex flex-col gap-4">
+                        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
+                            <div class="flex items-center gap-3">
+                                <span class="font-label-caps text-label-caps text-on-surface-variant">Offset (Hex)</span>
+                                <div class="relative">
+                                    <input id="hex-address-input" class="bg-surface border border-outline-variant text-on-surface font-mono-data text-sm rounded-md pl-3 pr-3 py-1.5 w-36 focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none" type="text" value="0x0"/>
+                                </div>
+                                <button id="hex-navigate-btn" class="bg-primary/20 border border-primary text-primary px-4 py-1.5 rounded-full font-label-caps text-label-caps hover:bg-primary/30 transition-all active:scale-95 duration-150">
+                                    GO
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="hex-prev-btn" class="px-4 py-1.5 rounded-md border border-outline-variant text-on-surface font-label-caps text-label-caps hover:bg-white/5 transition-colors flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[16px]">arrow_upward</span> PREV 256B
+                                </button>
+                                <button id="hex-next-btn" class="px-4 py-1.5 rounded-md border border-outline-variant text-on-surface font-label-caps text-label-caps hover:bg-white/5 transition-colors flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[16px]">arrow_downward</span> NEXT 256B
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Hex viewer print grid -->
+                        <div class="bg-surface-container-lowest/70 border border-white/5 rounded-lg p-6 overflow-x-auto">
+                            <pre id="hex-viewer-output" class="font-mono-data text-[13px] leading-relaxed tracking-wide text-on-surface-variant">
+                                <!-- Hex data layout prints here -->
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: DLLS -->
+                <div id="tab-dlls" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">DLL & Module Analysis</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Analyze loaded modules and detect injected DLLs.</p>
+                        </div>
+                    </div>
+                    <div id="dlls-container" class="space-y-4"></div>
+                </div>
+
+                <!-- TAB: THREADS -->
+                <div id="tab-threads" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Thread Analysis</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Identify suspicious thread behaviors like APC injection.</p>
+                        </div>
+                    </div>
+                    <div id="threads-container" class="space-y-4"></div>
+                </div>
+
+                <!-- TAB: CREDENTIALS -->
+                <div id="tab-credentials" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Credentials & Secrets</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Extracted credentials, hashes, and Mimikatz/LSASS access warnings.</p>
+                        </div>
+                    </div>
+                    <div id="credentials-summary"></div>
+                    <div id="credentials-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
+
+                <!-- TAB: FILE RECOVERY -->
+                <div id="tab-file-recovery" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">File Artifact Recovery</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Recovered files, PEs, documents, and scripts from memory.</p>
+                        </div>
+                    </div>
+                    <div id="file-recovery-summary"></div>
+                    <div id="file-recovery-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
+
+                <!-- TAB: YARA IOC -->
+                <div id="tab-yara" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">YARA & IOC Analysis</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Threat matches and strings offsets using YARA rules.</p>
+                        </div>
+                    </div>
+                    <div id="yara-summary"></div>
+                    <div id="yara-container" class="space-y-4"></div>
+                </div>
+
+                <!-- TAB: MALWARE -->
+                <div id="tab-malware" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Malware Analysis</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Threat dashboard showing families, scores, and deobfuscated strings.</p>
+                        </div>
+                    </div>
+                    <div id="malware-summary"></div>
+                    <div id="malware-container" class="space-y-4"></div>
+                </div>
+
+                <!-- TAB: REPORTING -->
+                <div id="tab-reporting" class="tab-content space-y-4">
+                    <div class="flex justify-between items-end mb-2">
+                        <div>
+                            <h2 class="font-display text-headline-sm font-semibold text-on-surface uppercase tracking-tight">Forensic Report Export</h2>
+                            <p class="font-body-sm text-body-sm text-on-surface-variant">Generate and export the forensic report.</p>
+                        </div>
+                    </div>
+                    <div class="bg-surface-container/60 border border-white/5 rounded-xl p-6 relative flex flex-col items-center justify-center min-h-[300px]">
+                        <button id="export-report-btn" class="bg-primary text-on-primary font-label-caps text-label-caps px-8 py-4 rounded-lg hover:bg-primary/90 transition-all active:scale-95 duration-150 flex items-center gap-2 shadow-[0_0_15px_rgba(173,198,255,0.2)]">
+                            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1; font-size: 24px;">download</span>
+                            EXPORT HTML REPORT
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer status bar -->
+            <footer class="h-10 border-t border-white/10 bg-surface flex items-center px-container-padding text-[10px] text-on-surface-variant font-label-caps shrink-0">
+                <span class="mr-2 text-primary font-bold">SYSTEM STATUS:</span>
+                <span id="footer-status">Ready. Select memory dump to analyze.</span>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Script file -->
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+[tools]
+rust = "stable"
+
+[tasks]
+# Run the test suite
+test = "cargo test --workspace"
+
+# Compile all crates in release mode
+build = "cargo build --workspace --release"
+
+# Run the GUI dashboard
+gui = "cargo run --bin forgelens-gui"
+
+# Run the default GUI application
+run = "cargo run --bin forgelens-tauri"
+
+# Run the Tauri premium desktop app
+tauri = "cargo tauri dev"
+
+# Run the CLI forensic scanner
+cli = "cargo run --bin forgelens-cli"
+
+# Format and lint code
+lint = "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings"

@@ -1,0 +1,8 @@
+[http]
+# Increase timeout limit to 120 seconds to allow slow connections to succeed
+timeout = 120
+# Disable multiplexing (resolves connection issues on some VPNs and proxies)
+multiplexing = false
+
+[registries.crates-io]
+protocol = "sparse"

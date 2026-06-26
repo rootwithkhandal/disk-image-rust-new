@@ -1,0 +1,17 @@
+[package]
+name = "forgelens-gui"
+version = "0.1.0"
+edition = "2021"
+authors = ["ForgeLens Team"]
+description = "High-fidelity GUI Dashboard for the ForgeLens memory forensics framework"
+
+[dependencies]
+eframe = { version = "0.27.2", features = ["persistence", "wgpu"] }
+egui = "0.27.2"
+egui_extras = "0.27.2"
+rfd = "0.14.1"
+forgelens-core = { path = "../forgelens-core" }
+chrono = "0.4.38"
+serde = { version = "1.0.203", features = ["derive"] }
+log = "0.4.22"
+env_logger = "0.11.3"
