@@ -1,0 +1,30 @@
+[tools]
+rust = "latest"
+
+[tasks.build]
+description = "Build the project"
+run = "cargo build"
+
+[tasks.release]
+description = "Build optimized release binary"
+run = "cargo build --release"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test"
+
+[tasks.lint]
+description = "Run clippy lints"
+run = "cargo clippy -- -D warnings"
+
+[tasks.run]
+description = "Run imgmount"
+run = "cargo run --"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "cargo clean"
+
+[tasks.ui]
+description = "Run the terminal dashboard"
+run = "cargo run -- ui"
