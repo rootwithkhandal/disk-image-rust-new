@@ -1,0 +1,15 @@
+.git/
+.venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+evidence/
+*.E01
+*.dd
+*.img
+*.iso
+node_modules/
+frontend/node_modules/
+*.log
+temp/

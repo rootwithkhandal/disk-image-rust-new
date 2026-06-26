@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+
+  # ── ForgeLens Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forgelens-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app/backend          # Live code reload in dev
+      - ./evidence:/app/evidence        # Evidence storage (never committed)
+      - ./plugins:/app/plugins          # Plugin hot-loading
+    ports:
+      - "8000:8000"
+    networks:
+      - forgelens-net
+
+  # ── PostgreSQL (optional — SQLite used by default) ───────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: forgelens-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forgelens
+      POSTGRES_PASSWORD: forgelens_dev
+      POSTGRES_DB: forgelens
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - forgelens-net
+
+volumes:
+  postgres_data:
+
+networks:
+  forgelens-net:
+    driver: bridge

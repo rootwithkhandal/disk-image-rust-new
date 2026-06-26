@@ -1,0 +1,24 @@
+# ForgeLens Configuration
+app:
+  name: ForgeLens
+  version: 0.5.0
+  debug: true
+  timezone: "Asia/Kolkata"   # IST (UTC+5:30) — change to "UTC" for UTC
+
+evidence:
+  base_path: ../evidence
+  hash_algorithm: sha256
+
+logging:
+  level: INFO
+  log_dir: ../logs
+
+acquisition:
+  block_size: 4096
+  threads: 4
+
+features:
+  disabled:
+    - v3
+    - cloud
+    - dfir

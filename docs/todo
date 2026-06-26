@@ -1,0 +1,395 @@
+image mounter for dd
+
+
+V0.1 — Foundation Layer
+Goal
+
+Build the skeleton. No fancy UI. No ego-driven feature creep.
+
+You are building the operating table before the surgery.
+Project Setup
+Repository Structure
+[x] Create monorepo
+[x] Create backend folder
+[x] Create frontend folder
+[x] Create docs folder
+[x] Create plugins folder
+[x] Create evidence storage structure
+
+
+
+Environment
+[x] Setup Python environment
+[x] Setup Ruff/Black formatter
+[x] Setup Git hooks
+[x] Setup logging framework
+[x] Setup config manager
+[x] Setup dotenv support
+[x] Setup Docker environment
+Core Modules
+[x] Device detection module
+[x] Disk enumeration module
+[x] Logging engine
+[x] Hashing engine
+[x] Metadata collector
+[x] Evidence manager
+[x] Report generator
+CLI
+[x] Create Typer CLI
+[x] Add --help commands
+[x] Add imaging commands
+[x] Add hash verification commands
+[x] Add export commands
+V0.2 — Disk Imaging Engine
+Goal
+
+Create a reliable imaging engine.
+
+This is the heart transplant.
+Everything else is just dashboard lighting.
+
+Raw Imaging
+[x] Build RAW/DD imaging support
+[x] Read sector-by-sector
+[x] Add chunked writing
+[x] Add pause/resume support
+[x] Add imaging progress tracker
+[x] Add throughput monitor
+[x] Add imaging cancellation
+Hashing
+[x] SHA256 support
+[x] SHA1 support
+[x] MD5 support
+[x] BLAKE3 support
+[x] Real-time hash calculation
+[x] Post-acquisition verification
+Device Safety
+[x] Read-only lock enforcement
+[x] Device write detection
+[x] Write blocker validation
+[x] Source integrity checks
+Logs
+[x] Acquisition logs
+[x] Error logs
+[x] Device event logs
+[x] Imaging timeline logs
+V0.3 — Windows Acquisition Support
+Goal
+
+Handle Windows systems properly.
+
+Windows hides evidence like a criminal accountant hiding offshore money.
+
+Windows Enumeration
+[x] Detect physical drives
+[x] Detect mounted partitions
+[x] Detect BitLocker status
+[x] Detect shadow copies
+[x] Detect Windows version
+Artifact Collection
+[x] Registry hive extraction
+[x] Event log collection
+[x] Prefetch extraction
+[x] Browser history collection
+[x] USB history collection
+[x] User profile acquisition
+Live Response
+[x] Running process enumeration
+[x] Network socket capture
+[x] ARP table capture
+[x] DNS cache capture
+[x] Scheduled task extraction
+RAM Acquisition
+[x] Integrate WinPMEM
+[x] Add RAM dump verification
+[x] Add memory metadata logging
+V0.4 — Linux Acquisition Support
+Goal
+
+Support Linux forensic imaging.
+
+Linux is transparent — until LUKS encryption shows up wearing a balaclava.
+
+Linux Enumeration
+[x] Detect block devices
+[x] Detect LVM volumes
+[x] Detect RAID arrays
+[x] Detect encrypted partitions
+[x] Detect filesystem types
+Linux Artifacts
+[x] Bash history extraction
+[x] SSH key collection
+[x] Crontab extraction
+[x] Syslog acquisition
+[x] Auth log collection
+[x] Docker artifact collection
+Memory Acquisition
+[x] Integrate LiME
+[x] Integrate AVML
+[x] Memory dump compression
+V0.5 — macOS Support
+Goal
+
+Handle macOS without detonating SIP protections.
+
+Apple security is like trying to rob a vault designed by obsessive chess players.
+
+macOS Enumeration
+[x] Detect APFS containers
+[x] Detect FileVault status
+[x] Detect SIP status
+[x] Detect T2/Apple Silicon
+macOS Artifacts
+[x] Unified log extraction
+[x] Safari history collection
+[x] Keychain metadata acquisition
+[x] LaunchAgents extraction
+[x] LaunchDaemons extraction
+Imaging
+[x] APFS imaging support
+[x] Snapshot acquisition
+[x] Time Machine artifact parsing
+V0.6 — External Storage & USB
+Goal
+
+Universal storage acquisition.
+
+USB Handling
+[x] USB auto-detection
+[x] Hotplug monitoring
+[x] USB metadata logging
+[x] Serial number extraction
+External Media
+[x] SD card imaging
+[x] NVMe imaging
+[x] SATA imaging
+[x] USB HDD imaging
+[x] USB SSD imaging
+Filesystem Support
+[x] NTFS parsing
+[x] FAT32 parsing
+[x] exFAT parsing
+[x] EXT4 parsing
+[x] XFS parsing
+[x] APFS parsing
+V0.7 — Android Acquisition
+Goal
+
+Build Android acquisition pipeline.
+
+Android is open enough to work with.
+Until OEM vendors start improvising like jazz musicians with firmware.
+
+Device Communication
+[x] Integrate ADB
+[x] Detect connected devices
+[x] Detect root status
+[x] Detect bootloader state
+[x] Detect Android version
+Logical Acquisition
+[x] SMS extraction
+[x] Contacts extraction
+[x] Call log extraction
+[x] Installed apps collection
+[x] Media acquisition
+[x] APK extraction
+Physical Acquisition
+[x] Partition dump support
+[x] Recovery-mode imaging
+[x] TWRP integration
+[x] userdata extraction
+Advanced
+[x] SQLite app database extraction
+[x] WhatsApp artifact parsing
+[x] Telegram artifact parsing
+[x] Browser artifact parsing
+V0.8 — iOS Acquisition
+Goal
+
+Build partial iOS forensic support.
+
+Apple doesn’t allow forensic access.
+It allows negotiations with physics.
+
+Device Communication
+[x] Integrate libimobiledevice
+[x] Detect iOS version
+[x] Detect jailbreak status
+[x] Pairing validation
+Logical Acquisition
+[x] iTunes backup acquisition
+[x] AFC extraction
+[ ] Media extraction
+[x] Contacts extraction
+[x] SMS extraction
+Advanced
+[x] Checkm8 workflow support
+[x] Jailbreak workflow support
+[x] Sysdiagnose acquisition
+V0.9 — Evidence Management System
+Goal
+
+Professional evidence handling.
+
+Without this, you’re just copying bytes with confidence issues.
+
+Evidence Vault
+[x] Evidence ID generator
+[x] Case management system
+[x] Evidence tagging
+[x] Evidence indexing
+[x] Evidence search
+Chain of Custody
+[x] Examiner tracking
+[x] Timestamp logging
+[x] Tamper-evident logs
+[x] Audit trail system
+Integrity
+[x] Evidence encryption
+[x] Signature verification
+[x] Secure metadata storage
+V1.0 — GUI Release
+Goal
+
+Professional desktop interface.
+
+Dashboard
+[x] Device overview panel
+[x] Live acquisition panel
+[x] Hash monitor
+[x] Case management UI
+[x] Evidence browser
+UX Features
+[x] Dark mode
+[x] Multi-tab workflow
+[x] Drag-and-drop evidence
+[x] Live logs viewer
+[x] Export wizard
+Packaging
+[x] Windows executable
+[x] Linux AppImage
+[x] macOS package
+V1.1 — Memory Forensics
+Goal
+
+Move into advanced DFIR territory.
+
+Volatility Integration
+[x] Process analysis
+[x] DLL analysis
+[x] Malware detection
+[x] Network connection analysis
+[x] Credential artifact detection
+Timeline Reconstruction
+[x] Memory timeline
+[x] Process creation timeline
+[x] User activity timeline
+V1.2 — Artifact Intelligence Engine
+Goal
+
+Automated forensic analysis.
+
+Parsing Engine
+[x] Browser parser framework
+[x] Registry parser framework
+[x] SQLite parser engine
+[x] EXIF parser engine
+Detection
+[x] YARA scanning
+[x] IOC matching
+[x] Suspicious persistence detection
+[x] Malware artifact detection
+V1.3 — Remote Acquisition
+Goal
+
+Enterprise-grade DFIR.
+
+Remote Agent
+[x] Secure agent deployment
+[x] Encrypted communications
+[x] Remote imaging
+[x] Remote memory capture
+Infrastructure
+[x] Central server
+[x] Evidence synchronization
+[x] Multi-user support
+[x] RBAC
+V1.4 — AI-Assisted Analysis
+Goal
+
+Accelerate analyst workflows.
+
+Not “AI magic.”
+Real analyst augmentation.
+
+AI Features
+[x] Automated evidence summarization
+[x] Suspicious activity explanation
+[x] Timeline narration
+[x] IOC prioritization
+[x] Behavioral anomaly detection
+V2.0 — Enterprise DFIR Platform
+Goal
+
+Turn the toolkit into a battlefield command center.
+
+Enterprise Features
+[x] Multi-case orchestration
+[x] SOC integration
+[x] SIEM integration
+[x] Threat intel feeds
+[x] Cloud acquisition
+[x] S3 evidence storage
+[x] Azure integration
+[x] GCP integration
+V2.1 — Cloud & Container Forensics
+Goal
+
+Modern infrastructure investigations.
+
+Cloud
+[ ] AWS snapshot acquisition
+[ ] Azure VM acquisition
+[ ] GCP disk acquisition
+[ ] IAM artifact collection
+Containers
+[ ] Docker acquisition
+[ ] Kubernetes artifact collection
+[ ] Container memory acquisition
+[ ] Cluster timeline reconstruction
+V2.2 — Advanced Mobile Forensics
+Goal
+
+Close the gap with commercial tools.
+
+Android
+[ ] Full filesystem extraction
+[ ] Deleted file recovery
+[ ] Secure enclave handling research
+iOS
+[ ] SEP research workflows
+[ ] Keybag handling
+[ ] Advanced filesystem extraction
+V2.3 — Offensive DFIR Features
+Goal
+
+Hybrid IR + adversary simulation.
+
+Features
+[ ] Live persistence hunting
+[ ] Beacon detection
+[ ] Credential theft detection
+[ ] Ransomware triage
+[ ] Lateral movement mapping
+V3.0 — Battlefield Edition
+Goal
+
+Full-spectrum forensic platform.
+
+Final Features
+[ ] Distributed acquisition
+[ ] Real-time evidence streaming
+[ ] Immutable evidence ledger
+[ ] AI threat graphing
+[ ] Cross-device timeline fusion
+[ ] Multi-investigator collaboration
