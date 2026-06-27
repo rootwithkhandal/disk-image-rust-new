@@ -1,0 +1,21 @@
+virustotal:
+  api_key: "YOUR_VIRUSTOTAL_API_KEY"
+  rate_limit_sleep: 15
+
+imaging:
+  block_size_mb: 4
+  default_image_path: ""
+  default_mount_point: ""
+
+yara:
+  rules_path: "malware_rules.yar"
+
+logging:
+  log_file: "logs/thirdeye.log"
+  level: "INFO"
+
+reporting:
+  output_dir: "reports"
+  formats:
+    - json
+    - csv

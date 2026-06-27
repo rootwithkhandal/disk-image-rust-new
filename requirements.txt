@@ -1,0 +1,10 @@
+loguru==0.7.2
+psutil==5.9.8
+scapy==2.5.0
+pandas==2.2.2
+requests==2.32.3
+yara-python==4.5.1
+PyExifTool==0.5.6
+click==8.1.7
+pyyaml==6.0.1
+tqdm==4.66.4
