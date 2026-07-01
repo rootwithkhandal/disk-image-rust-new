@@ -17,8 +17,11 @@
 | **📂 Disk Imaging** | Physical sector-by-sector and logical file acquisition. Supports Raw (`.dd`), E01 (`.e01`), and Advanced Forensic Format (`.aff`). Automatic sparse zero-block skipping and multi-threaded compression (`zstd`, `gzip`). |
 | **🔴 Live Acquisition** | Zero-downtime live evidence collection using Volume Shadow Copy Service (**VSS**) on Windows to freeze filesystem state. Safely captures OS-locked artifacts including NTFS MFT (`$MFT`), Registry Hives (`SAM`, `SYSTEM`, `SECURITY`, `SOFTWARE`), and Event Logs. |
 | **⚡ Rapid System Triage** | Instantaneous extraction of volatile system state: running processes, network connections, kernel modules, Chrome/Edge browser history databases, and EVTX/syslog event records. Includes an interactive **Triage SQL Workbench** to query and inspect sqlite databases directly within the app. |
+| **💻 Headless CLI Mode** | Full scriptable command-line interface (`--cli`) bypassing the GUI. Enables headless execution in IR automation pipelines, AWS EC2 / Linux servers without display managers, and automated triage scripts. |
 | **🧠 Memory Forensics (Volatility 3)** | Native integration with **Volatility 3** for analyzing acquired RAM dumps (`.raw`, `.vmem`, `.dmp`). Supports execution of Windows, Linux, and macOS memory profiles (e.g., `pslist`, `netstat`, `cmdline`, `filescan`, `malfind`, `printkey`) with real-time log streaming. |
+
 | **🛡️ Threat Intelligence Enrichment** | Automated real-time IOC enrichment during memory analysis. Verifies extracted IP addresses against **AbuseIPDB** reputation scores and queries file/process hashes against **VirusTotal**. |
+| **🛡️ SIEM & SOC Integration** | Direct real-time ingestion of structured JSON forensic records and threat intelligence IOCs into **Splunk HEC (HTTP Event Collector)** and **Wazuh Agent Socket / Syslog**. Enables one-click IR triage streaming into existing SOC lab environments. |
 | **⏱️ Timeline Generator** | Automated chronological artifact reconstruction. Extracts and parses timestamps from MFT records, `$LogFile`, and Ext4 journals to produce unified master timelines exported to structured **CSV** and **JSON** formats. |
 | **🔍 On-the-Fly YARA & Keyword Scanning** | Powered by a pure-Rust **YARA-X** engine. Performs real-time pattern matching against custom `.yar` rulesets and regular expression keyword searches simultaneously while streaming disk or memory data. |
 | **🧩 Extensible Plugin Platform** | Modular plugin architecture supporting compiled native shared libraries (`.so`, `.dll`, `.dylib`) and sandboxed WebAssembly (`.wasm`) modules via `wasmtime`. Features standardized lifecycle hooks (`pre_acquisition`, `on_block`, `post_acquisition`) for real-time data streaming, custom hashing, and automated report enrichment. |
@@ -74,9 +77,34 @@ graph TD
     VolEngine --> CaseDB
 
     CaseDB --> Reports
+    CaseDB -->|Structured JSON Stream| SIEM[Splunk HEC / Wazuh Socket]
     CaseDB <-->|Asynchronous IPC| UI
     VolEngine -->|Real-time Event Streams| UI
 ```
+
+### 🛡️ Real-Time SIEM & SOC Integration
+OpenForensic bridges the gap between field disk imaging and Security Operations Center (SOC) incident response. During Rapid System Triage and live acquisitions, forensic findings are converted into timestamped, structured JSON records and streamed in real-time to enterprise SIEM platforms:
+* **Splunk HTTP Event Collector (HEC)**: Emits structured events over HTTPS POST authenticated via HEC bearer tokens (`Authorization: Splunk <token>`). Automatically indexes running processes, network connections, browser visits, and OS event logs.
+* **Wazuh Agent Socket / Syslog**: Formats forensic records into Wazuh JSON lines and streams them directly over TCP/UDP sockets (default port 1514) or appends to local log queues monitored by the active Wazuh agent.
+* **One-Click IR Triage**: Responders can enable automatic SIEM emission during acquisition, instantly enriching enterprise SIEM dashboards with field IOCs without delaying physical data collection.
+
+### 💻 Headless CLI & Automation Mode
+OpenForensic includes a native command-line interface powered by `clap`, allowing investigators and automated SOAR pipelines to execute the forensic engine without a GUI or display server (ideal for AWS EC2 cloud triage or remote IR SSH sessions):
+```bash
+# Enumerate detected physical block devices
+openforensic --cli list-devices
+
+# Perform headless E01 physical imaging with zstd compression and SHA-256 hashing
+openforensic --cli acquire --source \\.\PhysicalDrive0 --dest D:\evidence\disk.e01 --format e01 --compression zstd --hashes md5,sha256
+
+# Run rapid live triage with real-time Splunk HEC SIEM streaming
+openforensic --cli triage --dest C:\triage_output --siem-export --siem-type splunk_hec --siem-endpoint https://splunk.soc:8088 --siem-token <token>
+
+# Analyze acquired RAM dump via Volatility 3 with AbuseIPDB threat intel enrichment
+openforensic --cli ram --dump memory.raw --profile windows.pslist.PsList --ioc-enrich
+```
+
+
 
 ### 🧩 Extensible Plugin Architecture
 OpenForensic operates as an extensible forensics platform rather than a static tool. Third-party modules integrate seamlessly into the acquisition pipeline through standardized lifecycle hooks defined in `OpenForensicPlugin`:

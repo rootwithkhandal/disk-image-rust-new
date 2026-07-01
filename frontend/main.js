@@ -573,6 +573,80 @@ function setupEventListeners() {
     });
   }
 
+  // SIEM Helper
+  function getSiemConfigFromUI() {
+    const enabled = document.getElementById('triage-siem-enable')?.checked || false;
+    const destTypeVal = document.getElementById('siem-type')?.value || 'splunk_hec';
+    let destination_type = 'splunk_hec';
+    if (destTypeVal === 'wazuh_socket') destination_type = 'wazuh_socket';
+    if (destTypeVal === 'wazuh_local_log') destination_type = 'wazuh_local_log';
+
+    return {
+      destination_type,
+      endpoint: document.getElementById('siem-endpoint')?.value || '',
+      auth_token: document.getElementById('siem-token')?.value || '',
+      index: document.getElementById('siem-index')?.value || 'openforensic_triage',
+      enabled
+    };
+  }
+
+  const btnTestSiem = document.getElementById('btn-test-siem');
+  if (btnTestSiem) {
+    btnTestSiem.addEventListener('click', async () => {
+      try {
+        logMessage('SYSTEM', 'Testing connection to SIEM endpoint...');
+        btnTestSiem.disabled = true;
+        const config = getSiemConfigFromUI();
+        const res = await invoke('test_siem_connection', { config });
+        logMessage('SUCCESS', '[SIEM] ' + res);
+        alert('Connection Successful:\n' + res);
+      } catch (err) {
+        logMessage('ERROR', '[SIEM] Connection test failed: ' + err);
+        alert('SIEM Connection Failed:\n' + err);
+      } finally {
+        btnTestSiem.disabled = false;
+      }
+    });
+  }
+
+  const btnSaveSiem = document.getElementById('btn-save-siem');
+  if (btnSaveSiem) {
+    btnSaveSiem.addEventListener('click', async () => {
+      try {
+        const config = getSiemConfigFromUI();
+        await invoke('save_siem_config', { config });
+        logMessage('SYSTEM', '[SIEM] Configuration saved to memory state.');
+        alert('SIEM configuration saved successfully!');
+      } catch (err) {
+        logMessage('ERROR', '[SIEM] Failed to save config: ' + err);
+      }
+    });
+  }
+
+  const btnExportSiemNow = document.getElementById('btn-export-siem-now');
+  if (btnExportSiemNow) {
+    btnExportSiemNow.addEventListener('click', async () => {
+      const dbPath = document.getElementById('triage-db-path')?.value;
+      if (!dbPath) {
+        alert('Please select or browse a triage.db file in the Triage Analysis Workbench first!');
+        return;
+      }
+      try {
+        logMessage('SYSTEM', `Starting manual SIEM export of ${dbPath}...`);
+        btnExportSiemNow.disabled = true;
+        const config = getSiemConfigFromUI();
+        const summary = await invoke('export_triage_to_siem', { dbPath, config });
+        logMessage('SUCCESS', `[SIEM] Export complete: ${summary.successful_events} events sent successfully, ${summary.failed_events} failed.`);
+        alert(`SIEM Export Complete:\n${summary.message}`);
+      } catch (err) {
+        logMessage('ERROR', '[SIEM] Export error: ' + err);
+        alert('SIEM Export Failed:\n' + err);
+      } finally {
+        btnExportSiemNow.disabled = false;
+      }
+    });
+  }
+
   // Triage Start button click
   document.getElementById('btn-start-triage').addEventListener('click', async (e) => {
     e.preventDefault();
@@ -585,6 +659,7 @@ function setupEventListeners() {
     const collect_volatile = document.getElementById('triage-volatile').checked;
     const collect_browsers = document.getElementById('triage-browsers').checked;
     const collect_eventlogs = document.getElementById('triage-eventlogs').checked;
+    const siemConfig = getSiemConfigFromUI();
 
     try {
       state.activeJob = true;
@@ -597,7 +672,8 @@ function setupEventListeners() {
         collectRegistry: collect_registry,
         collectVolatile: collect_volatile,
         collectBrowsers: collect_browsers,
-        collectEventlogs: collect_eventlogs
+        collectEventlogs: collect_eventlogs,
+        siemConfig: siemConfig.enabled ? siemConfig : null
       });
       
       // Auto-load DB path for analysis workbench if it succeeds
@@ -611,6 +687,7 @@ function setupEventListeners() {
       alert('Failed to start triage: ' + err);
     }
   });
+
 
   // Triage Workbench Renderer
   function renderTriageTable(data) {

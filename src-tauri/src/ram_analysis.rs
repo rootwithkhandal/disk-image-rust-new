@@ -44,84 +44,92 @@ pub async fn start_volatility_analysis(
 
     let app_clone = app_handle.clone();
     tokio::spawn(async move {
-        let _ = tx.send(ProgressEvent::Log(format!("Executing: {} -f {} {}", config.vol_path, config.image_path, config.profile))).await;
-        
-        let mut cmd;
-        if config.vol_path.ends_with(".py") {
-            cmd = Command::new("python");
-            cmd.arg(&config.vol_path);
-        } else {
-            cmd = Command::new(&config.vol_path);
+        let _ = start_volatility_analysis_backend(&config, tx).await;
+        crate::clear_active_task(&app_clone);
+    });
+
+    Ok(())
+}
+
+pub async fn start_volatility_analysis_backend(
+    config: &VolatilityConfig,
+    tx: tokio::sync::mpsc::Sender<ProgressEvent>,
+) -> Result<(), String> {
+    let _ = tx.send(ProgressEvent::Log(format!("Executing: {} -f {} {}", config.vol_path, config.image_path, config.profile))).await;
+    
+    let mut cmd;
+    if config.vol_path.ends_with(".py") {
+        cmd = Command::new("python");
+        cmd.arg(&config.vol_path);
+    } else {
+        cmd = Command::new(&config.vol_path);
+    }
+
+    cmd.arg("-f")
+       .arg(&config.image_path)
+       .arg(&config.profile)
+       .stdout(Stdio::piped())
+       .stderr(Stdio::piped());
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(ProgressEvent::Error(format!("Failed to start Volatility: {}", e))).await;
+            return Err(format!("Failed to start Volatility: {}", e));
         }
+    };
 
-        cmd.arg("-f")
-           .arg(&config.image_path)
-           .arg(&config.profile)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    let stderr = child.stderr.take().expect("Failed to open stderr");
 
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx.send(ProgressEvent::Error(format!("Failed to start Volatility: {}", e))).await;
-                crate::clear_active_task(&app_clone);
-                return;
-            }
-        };
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
 
-        let stdout = child.stdout.take().expect("Failed to open stdout");
-        let stderr = child.stderr.take().expect("Failed to open stderr");
+    let tx_out = tx.clone();
+    let _vt_key = config.vt_key.clone();
+    let abuseip_key = config.abuseip_key.clone();
+    let _enrich_vt = config.enrich_vt;
+    let enrich_abuseip = config.enrich_abuseip;
+    
+    let ip_re = regex::Regex::new(r"(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\b").unwrap();
 
-        let mut stdout_reader = BufReader::new(stdout).lines();
-        let mut stderr_reader = BufReader::new(stderr).lines();
+    let stdout_task = tokio::spawn(async move {
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            let _ = tx_out.send(ProgressEvent::Log(line.clone())).await;
 
-        let tx_out = tx.clone();
-        let _vt_key = config.vt_key.clone();
-        let abuseip_key = config.abuseip_key.clone();
-        let _enrich_vt = config.enrich_vt;
-        let enrich_abuseip = config.enrich_abuseip;
-        
-        let ip_re = regex::Regex::new(r"(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\.(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)\b").unwrap();
-
-        let stdout_task = tokio::spawn(async move {
-            while let Ok(Some(line)) = stdout_reader.next_line().await {
-                let _ = tx_out.send(ProgressEvent::Log(line.clone())).await;
-
-                if enrich_abuseip && !abuseip_key.is_empty() {
-                    if let Some(caps) = ip_re.captures(&line) {
-                        let ip = &caps[0];
-                        if !ip.starts_with("127.") && !ip.starts_with("192.168.") && !ip.starts_with("10.") && !ip.starts_with("172.16.") && ip != "0.0.0.0" {
-                            let key = abuseip_key.clone();
-                            let ip_str = ip.to_string();
-                            let tx_inner = tx_out.clone();
-                            tokio::spawn(async move {
-                                if let Ok(res) = check_abuseip(&ip_str, &key).await {
-                                    let _ = tx_inner.send(ProgressEvent::Log(format!("  [AbuseIPDB] Result for {}: {}", ip_str, res))).await;
-                                }
-                            });
-                        }
+            if enrich_abuseip && !abuseip_key.is_empty() {
+                if let Some(caps) = ip_re.captures(&line) {
+                    let ip = &caps[0];
+                    if !ip.starts_with("127.") && !ip.starts_with("192.168.") && !ip.starts_with("10.") && !ip.starts_with("172.16.") && ip != "0.0.0.0" {
+                        let key = abuseip_key.clone();
+                        let ip_str = ip.to_string();
+                        let tx_inner = tx_out.clone();
+                        tokio::spawn(async move {
+                            if let Ok(res) = check_abuseip(&ip_str, &key).await {
+                                let _ = tx_inner.send(ProgressEvent::Log(format!("  [AbuseIPDB] Result for {}: {}", ip_str, res))).await;
+                            }
+                        });
                     }
                 }
             }
-        });
-
-        let tx_err = tx.clone();
-        let stderr_task = tokio::spawn(async move {
-            while let Ok(Some(line)) = stderr_reader.next_line().await {
-                let _ = tx_err.send(ProgressEvent::Log(format!("[STDERR] {}", line))).await;
-            }
-        });
-
-        let _ = tokio::join!(stdout_task, stderr_task);
-        let _ = child.wait().await;
-
-        let _ = tx.send(ProgressEvent::Finished {
-            bytes_read: 0,
-            bad_sectors: 0,
-            hashes: HashMap::new(),
-        }).await;
-        crate::clear_active_task(&app_clone);
+        }
     });
+
+    let tx_err = tx.clone();
+    let stderr_task = tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            let _ = tx_err.send(ProgressEvent::Log(format!("[STDERR] {}", line))).await;
+        }
+    });
+
+    let _ = tokio::join!(stdout_task, stderr_task);
+    let _ = child.wait().await;
+
+    let _ = tx.send(ProgressEvent::Finished {
+        bytes_read: 0,
+        bad_sectors: 0,
+        hashes: HashMap::new(),
+    }).await;
 
     Ok(())
 }

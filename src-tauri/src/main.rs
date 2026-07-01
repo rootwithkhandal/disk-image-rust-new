@@ -18,6 +18,9 @@ mod triage_db;
 pub mod timeline;
 mod ram_analysis;
 pub mod plugins;
+pub mod siem;
+pub mod cli;
+
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
 use acquisition::{AcquisitionConfig, ProgressEvent};
@@ -608,6 +611,7 @@ async fn start_triage(
     collect_volatile: bool,
     collect_browsers: bool,
     collect_eventlogs: bool,
+    siem_config: Option<crate::siem::SiemConfig>,
     state: State<'_, ActiveTaskState>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
@@ -633,6 +637,7 @@ async fn start_triage(
             collect_volatile,
             collect_browsers,
             collect_eventlogs,
+            siem_config,
             tx.clone(),
         )
         .await
@@ -1108,6 +1113,32 @@ async fn start_live_acquisition(
 }
 
 pub type PluginManagerState = Mutex<crate::plugins::PluginManager>;
+pub type SiemConfigState = Mutex<Option<crate::siem::SiemConfig>>;
+
+#[tauri::command]
+async fn test_siem_connection(config: crate::siem::SiemConfig) -> Result<String, String> {
+    let client = crate::siem::SiemClient::new(config);
+    client.test_connection().await
+}
+
+#[tauri::command]
+async fn save_siem_config(config: crate::siem::SiemConfig, state: State<'_, SiemConfigState>) -> Result<(), String> {
+    let mut guard = state.lock().map_err(|_| "SIEM config mutex poisoned".to_string())?;
+    *guard = Some(config);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_siem_config(state: State<'_, SiemConfigState>) -> Result<Option<crate::siem::SiemConfig>, String> {
+    let guard = state.lock().map_err(|_| "SIEM config mutex poisoned".to_string())?;
+    Ok(guard.clone())
+}
+
+#[tauri::command]
+async fn export_triage_to_siem(db_path: String, config: crate::siem::SiemConfig) -> Result<crate::siem::SiemExportSummary, String> {
+    let client = crate::siem::SiemClient::new(config);
+    client.send_triage_db(std::path::Path::new(&db_path), "MANUAL-EXPORT", None).await
+}
 
 #[tauri::command]
 async fn load_plugin(path: String, state: State<'_, PluginManagerState>) -> Result<crate::plugins::PluginInfo, String> {
@@ -1135,9 +1166,30 @@ async fn scan_plugins_directory(dir: String, state: State<'_, PluginManagerState
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let is_cli = args.iter().any(|arg| {
+        arg == "--cli" || arg == "cli" || arg == "acquire" || arg == "image" || arg == "triage" ||
+        arg == "list-devices" || arg == "devices" || arg == "list-volumes" || arg == "volumes" ||
+        arg == "live" || arg == "ram" || arg == "volatility" || arg == "--help" || arg == "-h" ||
+        arg == "--version" || arg == "-V"
+    });
+
+    if is_cli && args.len() > 1 {
+        use clap::Parser;
+        let cli_args = crate::cli::CliArgs::parse();
+        match crate::cli::run_cli(cli_args) {
+            Ok(_) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[FATAL ERROR] {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     tauri::Builder::default()
         .manage(Mutex::new(None) as ActiveTaskState)
         .manage(Mutex::new(crate::plugins::PluginManager::new()) as PluginManagerState)
+        .manage(Mutex::new(None) as SiemConfigState)
         .invoke_handler(tauri::generate_handler![
             get_admin_status,
             scan_devices,
@@ -1159,7 +1211,11 @@ fn main() {
             load_plugin,
             list_plugins,
             unload_plugin,
-            scan_plugins_directory
+            scan_plugins_directory,
+            test_siem_connection,
+            save_siem_config,
+            get_siem_config,
+            export_triage_to_siem
         ])
         .setup(|app| {
             let _ = crate::case_management::init_db(app.handle());
@@ -1168,3 +1224,4 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

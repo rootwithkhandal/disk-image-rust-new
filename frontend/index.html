@@ -293,6 +293,43 @@
                   Rapid Triage collects volatile evidence and registry hives directly from the active system. Collected data is structured, timestamped, and packaged into the destination folder for instant forensic inspection.
                 </p>
 
+                <div class="form-group full-width" style="margin-top: 15px; padding: 18px; background: var(--bg-deep); border: 1px solid var(--color-border); border-radius: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--color-border); padding-bottom: 10px;">
+                    <label style="font-weight: 600; font-size: 1.05rem; color: #55ff99; margin: 0;">🛡️ SIEM & SOC Integration (Wazuh / Splunk HEC)</label>
+                    <label class="checkbox-label" style="margin: 0;">
+                      <input type="checkbox" id="triage-siem-enable">
+                      <span style="font-weight: 500;">Emit directly to SIEM upon completion</span>
+                    </label>
+                  </div>
+                  <div id="siem-config-fields" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px;">
+                    <div class="form-group">
+                      <label for="siem-type" style="font-size: 0.85rem; color: var(--text-muted);">Destination Type:</label>
+                      <select id="siem-type" style="padding: 10px; background: var(--bg-surface); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px; width: 100%;">
+                        <option value="splunk_hec">Splunk HEC (HTTP Event Collector)</option>
+                        <option value="wazuh_socket">Wazuh TCP Socket / Syslog</option>
+                        <option value="wazuh_local_log">Wazuh Local Agent Log File</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="siem-endpoint" style="font-size: 0.85rem; color: var(--text-muted);">Endpoint URL / Host:Port / Log Path:</label>
+                      <input type="text" id="siem-endpoint" placeholder="https://splunk.azure-soc.internal:8088 or 127.0.0.1:1514" value="https://splunk.azure-soc.internal:8088" style="width: 100%; padding: 10px; background: var(--bg-surface); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px;">
+                    </div>
+                    <div class="form-group">
+                      <label for="siem-token" style="font-size: 0.85rem; color: var(--text-muted);">Auth Token / API Key:</label>
+                      <input type="password" id="siem-token" placeholder="Splunk HEC Token or Wazuh Key" style="width: 100%; padding: 10px; background: var(--bg-surface); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px;">
+                    </div>
+                    <div class="form-group">
+                      <label for="siem-index" style="font-size: 0.85rem; color: var(--text-muted);">Index / Source Type / Tag:</label>
+                      <input type="text" id="siem-index" placeholder="openforensic_triage / _json" value="openforensic_triage" style="width: 100%; padding: 10px; background: var(--bg-surface); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px;">
+                    </div>
+                    <div class="form-group full-width" style="display: flex; gap: 12px; margin-top: 6px;">
+                      <button type="button" id="btn-test-siem" class="btn btn-secondary" style="flex: 1;">🔗 Test Connection</button>
+                      <button type="button" id="btn-save-siem" class="btn btn-secondary" style="flex: 1;">💾 Save Config</button>
+                      <button type="button" id="btn-export-siem-now" class="btn btn-secondary" style="flex: 1; color: #55ff99; border-color: #55ff99;">📤 Export Current DB to SIEM</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="form-group full-width" style="margin-top: 24px;">
                   <button type="button" id="btn-start-triage" class="btn btn-primary" style="width: 260px;">⚡ Start Triage Collection</button>
                 </div>

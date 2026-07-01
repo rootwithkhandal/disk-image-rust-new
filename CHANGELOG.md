@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.2] - 2026-07-01
 
 ### Added
+- **Headless CLI & Automation Mode (`--cli`)**: Built a full scriptable command-line interface using `clap` to execute core forensic acquisition and triage engines without launching the Tauri GUI or requiring a display server (ideal for AWS EC2 Linux triage and remote SSH investigations).
+- **CLI Subcommand Suite**:
+  - `list-devices`: Enumerate detected physical block storage drives with model, serial, and geometry details.
+  - `list-volumes`: List logical OS volumes, mount points, and filesystem metrics.
+  - `acquire`: Execute physical or logical bitstream imaging (`Raw`, `E01`, `AFF`) with real-time multi-threaded compression (`zstd`, `gzip`), multi-algorithm hashing, and live keyword/YARA alerting.
+  - `triage`: Run rapid live system collection (processes, network sockets, browser histories, EVTX logs) with optional real-time SIEM event streaming (`Splunk HEC`, `Wazuh Socket`).
+  - `live`: Capture physical RAM (`winpmem`) and OS-locked files (`$MFT`, Registry Hives) via Windows Volume Shadow Copy (`VSS`).
+  - `ram`: Run Volatility 3 memory analysis profiles with automated AbuseIPDB and VirusTotal IOC reputation enrichment.
+- **Windows Console Restoration**: Implemented automatic Win32 console attachment (`AttachConsole`) to ensure clean stdin/stdout/stderr stream routing when invoked from standard terminals or scripts.
+- **Real-Time SIEM & SOC Integration**: Added enterprise SOC telemetry streaming to automatically ingest structured forensic records and threat intelligence IOCs into SIEM dashboards.
+- **Splunk HEC & Wazuh Transport Modes**:
+  - **Splunk HTTP Event Collector (HEC)**: Emits structured JSON events over HTTPS POST authenticated with HEC bearer tokens (`Authorization: Splunk <token>`).
+  - **Wazuh Agent Socket & Log Transport**: Formats forensic records into Wazuh JSON lines streamed over TCP/UDP sockets or appended to local agent monitoring queues.
+- **One-Click IR Triage Emission**: Integrated direct SIEM event streaming into System Triage and RAM analysis workflows without degrading physical data collection speeds.
 - **Extensible Plugin Architecture**: Added modular plugin platform transforming OpenForensic into an extensible digital forensics ecosystem.
 - **`OpenForensicPlugin` Trait**: Defined standardized lifecycle hooks:
   - `pre_acquisition`: Invoked before disk imaging to inspect case metadata, volume dimensions, and initialize resources.

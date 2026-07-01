@@ -758,6 +758,7 @@ pub async fn acquire_triage(
     collect_volatile: bool,
     collect_browsers: bool,
     collect_eventlogs: bool,
+    siem_config: Option<crate::siem::SiemConfig>,
     progress_tx: Sender<ProgressEvent>,
 ) -> Result<()> {
     use std::fs::{self, File};
@@ -1002,6 +1003,21 @@ pub async fn acquire_triage(
     }
 
     let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Rapid forensic triage completed successfully!".to_string())).await;
+
+    if let Some(ref cfg) = siem_config {
+        if cfg.enabled {
+            let _ = progress_tx.send(ProgressEvent::Log("[SIEM] Initiating SIEM export of triage database...".to_string())).await;
+            let client = crate::siem::SiemClient::new(cfg.clone());
+            match client.send_triage_db(&db_path, "TRIAGE-JOB", Some(progress_tx.clone())).await {
+                Ok(summary) => {
+                    let _ = progress_tx.send(ProgressEvent::Log(format!("[SIEM SUCCESS] {}", summary.message))).await;
+                }
+                Err(e) => {
+                    let _ = progress_tx.send(ProgressEvent::Log(format!("[SIEM ERROR] Export failed: {}", e))).await;
+                }
+            }
+        }
+    }
     
     let _ = progress_tx.send(ProgressEvent::Finished {
         bytes_read: 0,
@@ -1136,3 +1152,115 @@ pub async fn compute_logical_hash(
 
     Ok(hashers.finalize())
 }
+
+pub async fn acquire_live(
+    volume: &str,
+    dest_dir_str: &str,
+    capture_ram: bool,
+    copy_locked_files: bool,
+    _check_consistency: bool,
+    _image_vss: bool,
+    _auto_cleanup: bool,
+    hash_algos: Vec<HashAlgorithm>,
+    progress_tx: Sender<ProgressEvent>,
+) -> std::result::Result<(), String> {
+    let dest_dir = std::path::PathBuf::from(dest_dir_str);
+    let _ = std::fs::create_dir_all(&dest_dir);
+
+    let _ = progress_tx.send(ProgressEvent::Log(
+        "[LIVE] Starting live system acquisition pipeline...".to_string()
+    )).await;
+
+    let mut vss_device_path: Option<String> = None;
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = progress_tx.send(ProgressEvent::Log(
+            format!("[LIVE] Creating VSS snapshot for volume {}...", volume)
+        )).await;
+
+        match crate::platform::vss::VssSnapshot::create(volume) {
+            Ok(snapshot) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] VSS Snapshot created: ID={}, Device={}",
+                        snapshot.shadow_id, snapshot.device_path)
+                )).await;
+                vss_device_path = Some(snapshot.device_path.clone());
+            }
+            Err(e) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] WARNING: VSS snapshot creation failed: {}. Continuing without snapshot.", e)
+                )).await;
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = progress_tx.send(ProgressEvent::Log(
+            "[LIVE] VSS snapshots are only available on Windows. Skipping.".to_string()
+        )).await;
+    }
+
+    if capture_ram {
+        let _ = progress_tx.send(ProgressEvent::Log(
+            "[LIVE] Starting physical memory (RAM) acquisition...".to_string()
+        )).await;
+
+        let ram_dest = dest_dir.join("memory_dump.raw");
+        let ram_config = crate::memory::MemoryDumpConfig {
+            dest_path: ram_dest.clone(),
+            hash_algorithms: hash_algos.clone(),
+            tool_path: Some("winpmem.exe".to_string()),
+        };
+
+        match crate::memory::acquire_memory(&ram_config, progress_tx.clone()).await {
+            Ok(result) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] RAM acquisition complete: {} bytes using {}",
+                        result.bytes_captured, result.tool_used)
+                )).await;
+            }
+            Err(e) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] WARNING: RAM acquisition failed: {}. Continuing.", e)
+                )).await;
+            }
+        }
+    }
+
+    if copy_locked_files {
+        let _ = progress_tx.send(ProgressEvent::Log(
+            "[LIVE] Starting locked file acquisition...".to_string()
+        )).await;
+
+        let locked_config = crate::locked_files::LockedFileCopyConfig {
+            dest_dir: dest_dir.clone(),
+            hash_algorithms: hash_algos.clone(),
+            vss_device_path: vss_device_path.clone(),
+            custom_files: Vec::new(),
+        };
+
+        match crate::locked_files::copy_locked_files(&locked_config, progress_tx.clone()).await {
+            Ok(files) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] Locked file acquisition complete: {} files processed.", files.len())
+                )).await;
+            }
+            Err(e) => {
+                let _ = progress_tx.send(ProgressEvent::Log(
+                    format!("[LIVE] WARNING: Locked file acquisition failed: {}. Continuing.", e)
+                )).await;
+            }
+        }
+    }
+
+    let _ = progress_tx.send(ProgressEvent::Finished {
+        bytes_read: 0,
+        bad_sectors: 0,
+        hashes: HashMap::new(),
+    }).await;
+
+    Ok(())
+}
+
