@@ -304,7 +304,7 @@ pub async fn copy_locked_files(
     let manifest_path = locked_files_dir.join("_manifest.txt");
     if let Ok(mut manifest) = std::fs::File::create(&manifest_path) {
         use std::io::Write;
-        let _ = writeln!(manifest, "=== FORGELENS LOCKED FILE ACQUISITION MANIFEST ===");
+        let _ = writeln!(manifest, "=== OPENFORENSIC LOCKED FILE ACQUISITION MANIFEST ===");
         let _ = writeln!(manifest, "Date: {}", chrono::Utc::now().to_rfc2822());
         let _ = writeln!(manifest, "VSS Path: {}", config.vss_device_path.as_deref().unwrap_or("N/A (direct access)"));
         let _ = writeln!(manifest, "Total Files: {} (Success: {}, Failed: {})", results.len(), success_count, fail_count);

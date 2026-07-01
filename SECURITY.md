@@ -9,10 +9,10 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Forgelens Disk Imager, please report it responsibly:
+If you discover a security vulnerability in OpenForensic, please report it responsibly:
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities.
-2. **Email** your report to the repository maintainer with the subject line `[SECURITY] Forgelens Vulnerability Report`.
+2. **Email** your report to the repository maintainer with the subject line `[SECURITY] OpenForensic Vulnerability Report`.
 3. Include a detailed description of the vulnerability, steps to reproduce, and potential impact.
 4. You can expect an initial acknowledgement within **72 hours** of your report.
 5. We aim to provide a fix or mitigation within **14 days** for critical vulnerabilities.

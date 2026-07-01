@@ -367,7 +367,7 @@ pub async fn acquire(
         let dest_path = final_dest_path;
         let log_path = dest_path.with_extension("bad_sectors.log");
         if let Ok(mut log_file) = std::fs::File::create(&log_path) {
-            let _ = writeln!(log_file, "=== FORGELENS BAD SECTOR MAP ===");
+            let _ = writeln!(log_file, "=== OPENFORENSIC BAD SECTOR MAP ===");
             let _ = writeln!(log_file, "LBA\t\tRETRIES\t\tERROR");
             for entry in &bad_sector_map.sectors {
                 let _ = writeln!(log_file, "{}\t\t{}\t\t{}", entry.lba, entry.retries, entry.error_msg);
@@ -461,7 +461,7 @@ pub async fn acquire_logical(
     
     let manifest_path = dest_dir.join("logical_manifest.txt");
     let mut manifest = File::create(manifest_path)?;
-    writeln!(manifest, "=== FORGELENS LOGICAL ACQUISITION MANIFEST ===")?;
+    writeln!(manifest, "=== OPENFORENSIC LOGICAL ACQUISITION MANIFEST ===")?;
     writeln!(manifest, "Source Directory: {}", source_dir.display())?;
     writeln!(manifest, "Case Number:      {}", config.case_number)?;
     writeln!(manifest, "Examiner:         {}", config.examiner)?;

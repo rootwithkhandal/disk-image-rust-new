@@ -6,11 +6,11 @@ This document outlines the standard process for capturing volatile system memory
 
 Capturing a memory dump is one of the most critical steps in live incident response, as it preserves volatile evidence such as running processes, unencrypted passwords, network connections, and injected malware that would be lost if the machine is powered off.
 
-### Using Forgelens (Live Acquisition)
+### Using OpenForensic (Live Acquisition)
 
-1. **Navigate to Live Acquisition**: In Forgelens, switch to the "Live Acquisition" tab.
-2. **Select Capabilities**: Check the box for "Capture Physical Memory (RAM)".
-3. **Choose the Tool**: Forgelens can leverage robust kernel-level drivers to read physical memory safely. On Windows, it integrates with tools like `winpmem` or `DumpIt`. On Linux, it often leverages `avml` or `/dev/crash`.
+1. **Navigate to Live Acquisition**: In OpenForensic, switch to the "Live Acquisition" tab.
+2. **Select Output Path**: Specify where you want to save the `.raw` memory image. **Crucial Rule:** Never save the memory dump to the target machine's system drive (e.g., `C:\`). Always write to an external USB forensic drive or network share to minimize evidence destruction.
+3. **Choose the Tool**: OpenForensic can leverage robust kernel-level drivers to read physical memory safely. On Windows, it integrates with tools like `winpmem` or `DumpIt`. On Linux, it often leverages `avml` or `/dev/crash`.
 4. **Acquire**: Click "Start Live Acquisition." The tool will load a temporary kernel driver to bypass OS protections, read the physical address space, stream it into a container (often a raw `.raw`, `.img`, or `.mem` file), and automatically unload the driver.
 
 ### Using External Tools (e.g., FTK Imager, DumpIt)

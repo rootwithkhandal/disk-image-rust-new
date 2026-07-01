@@ -540,7 +540,7 @@ async fn start_acquisition(
                             let sig_path = dest_file_path.with_extension("signature");
                             if let Ok(mut sig_file) = std::fs::File::create(sig_path) {
                                 use std::io::Write;
-                                let _ = writeln!(sig_file, "=== FORGELENS FORENSIC SEAL ===");
+                                let _ = writeln!(sig_file, "=== OPENFORENSIC FORENSIC SEAL ===");
                                 let _ = writeln!(sig_file, "Signature: {}", sig);
                                 let _ = writeln!(sig_file, "Workstation ID: WORKSTATION-STN-01");
                                 let _ = writeln!(sig_file, "Timestamp: {}", chrono::Utc::now().to_rfc2822());

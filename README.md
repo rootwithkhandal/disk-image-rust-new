@@ -1,119 +1,200 @@
-# ⚡ Forgelens Disk Imager
+# ⚡ OpenForensic Disk Imager & Digital Forensics Suite
 
-Forgelens is a professional, cross-platform forensic disk imaging and system triage application built in Rust and powered by Tauri. It provides a secure, write-blocked method to copy physical storage media, perform logical acquisitions, collect volatile memory, and verify digital evidence integrity.
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg?style=for-the-badge&logo=semver)](package.json)
+[![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg?style=for-the-badge&logo=rust)](src-tauri/Cargo.toml)
+[![Tauri](https://img.shields.io/badge/tauri-2.11-24C8DB.svg?style=for-the-badge&logo=tauri)](src-tauri/tauri.conf.json)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg?style=for-the-badge&logo=linux)]()
+[![License](https://img.shields.io/badge/license-Proprietary-red.svg?style=for-the-badge)]()
 
----
-
-## 💻 System Requirements
-
-**Operating Systems Supported:**
-*   **Windows**: Windows 10, Windows 11 (64-bit)
-*   **Linux**: Ubuntu 20.04+, Debian, Fedora, Arch Linux (Requires root access)
-*   **macOS**: macOS 11.0 Big Sur or later (Requires Full Disk Access)
-
-**Hardware Requirements:**
-*   **RAM**: 4GB Minimum (8GB+ recommended for large multi-threaded hash verifications)
-*   **Storage**: 100MB for the application, plus sufficient destination storage for acquired disk images and memory dumps.
-*   **Permissions**: **Administrator / Root access is strictly required** for raw disk and memory access.
+**OpenForensic** is an enterprise-grade, cross-platform digital forensics and incident response (DFIR) application built in high-performance **Rust** and powered by **Tauri 2**. Designed for forensic investigators, incident responders, and law enforcement, OpenForensic provides an end-to-end, write-blocked investigation suite capable of physical disk cloning, live volatile system triage, deep memory analysis, IOC scanning, and automated chain-of-custody reporting.
 
 ---
 
-## ✨ Features
+## 🌟 Key Forensic Capabilities
 
-*   **100% Secure Write-Blocking**: Software-level safety switches ensure the original drive is never altered during the physical copying process.
-*   **Logical Acquisition**: Targeted copying of specific files and folders, complete with dynamic hashing-based verification against read data.
-*   **Live Physical Memory (RAM) Acquisition**: 
-    *   **Windows**: Bundles `winpmem_mini_x64_rc2.exe` to seamlessly capture live system RAM.
-    *   **Linux**: Supports capturing via `/proc/kcore` or `avml`.
-    *   *Note: macOS memory capture is disabled by default due to System Integrity Protection (SIP).*
-*   **Rapid System Triage**: Captures live diagnostic data (running processes, network sockets, loaded modules), copies live configs (Registry hives on Windows, `/etc` files on Unix), grabs browser history (Chrome/Edge), and extracts event logs (EVTX/syslog).
-*   **Forensic Hash Verification**: Computes multi-algorithm digital fingerprints (MD5, SHA-1, SHA-256, SHA-512) simultaneously in a single pass to prove that the copy is a perfect match of the original.
-*   **Real-Time Keyword & YARA Scanning**: Searches for specific strings or Indicators of Compromise (IOCs) on-the-fly during acquisition. Supports dropping in `.yar` rulesets for full pattern matching via a pure-Rust `yara-x` engine.
-*   **Forensic Case Management System**: Automatically tracks all acquisitions in a secure local SQLite database. Generates court-admissible HTML reports mapping evidence tags, chain of custody hashes, and examiner notes to each case.
-*   **Sparse Imaging & Compression**: Optimizes storage space by skipping sectors containing all zeroes and supports advanced compression formats (zstd, gzip).
-*   **Advanced Filesystem & Encryption Detector**: Identifies partition formats (APFS, HFS+, ext2/3/4, XFS, Btrfs, ReFS) and encryption wrappers (BitLocker, LUKS, FileVault) automatically.
-*   **Modern User Interface**: A premium, responsive dashboard showing progress, speed, and real-time logs in dedicated panels.
+| Module | Features & Capabilities |
+| :--- | :--- |
+| **📂 Disk Imaging** | Physical sector-by-sector and logical file acquisition. Supports Raw (`.dd`), E01 (`.e01`), and Advanced Forensic Format (`.aff`). Automatic sparse zero-block skipping and multi-threaded compression (`zstd`, `gzip`). |
+| **🔴 Live Acquisition** | Zero-downtime live evidence collection using Volume Shadow Copy Service (**VSS**) on Windows to freeze filesystem state. Safely captures OS-locked artifacts including NTFS MFT (`$MFT`), Registry Hives (`SAM`, `SYSTEM`, `SECURITY`, `SOFTWARE`), and Event Logs. |
+| **⚡ Rapid System Triage** | Instantaneous extraction of volatile system state: running processes, network connections, kernel modules, Chrome/Edge browser history databases, and EVTX/syslog event records. Includes an interactive **Triage SQL Workbench** to query and inspect sqlite databases directly within the app. |
+| **🧠 Memory Forensics (Volatility 3)** | Native integration with **Volatility 3** for analyzing acquired RAM dumps (`.raw`, `.vmem`, `.dmp`). Supports execution of Windows, Linux, and macOS memory profiles (e.g., `pslist`, `netstat`, `cmdline`, `filescan`, `malfind`, `printkey`) with real-time log streaming. |
+| **🛡️ Threat Intelligence Enrichment** | Automated real-time IOC enrichment during memory analysis. Verifies extracted IP addresses against **AbuseIPDB** reputation scores and queries file/process hashes against **VirusTotal**. |
+| **⏱️ Timeline Generator** | Automated chronological artifact reconstruction. Extracts and parses timestamps from MFT records, `$LogFile`, and Ext4 journals to produce unified master timelines exported to structured **CSV** and **JSON** formats. |
+| **🔍 On-the-Fly YARA & Keyword Scanning** | Powered by a pure-Rust **YARA-X** engine. Performs real-time pattern matching against custom `.yar` rulesets and regular expression keyword searches simultaneously while streaming disk or memory data. |
+| **🔐 4-Algorithm Hash Verification** | Simultaneous single-pass hashing using **MD5, SHA-1, SHA-256, and SHA-512** to establish cryptographic proof of evidence integrity. Includes built-in checkpointing to pause and resume long acquisitions without data corruption. |
+| **📁 Case Management & Reporting** | Integrated SQLite case database tracking evidence tags, investigator notes, device metadata, and cryptographic hashes. Generates court-admissible HTML and PDF forensic reports. |
 
 ---
 
-## 🏛️ System Design & Architecture
+## 🏛️ Architecture & Asynchronous Pipeline
 
-Forgelens uses a decoupled architecture powered by **Tauri**, providing a lightweight, native GUI experience without shipping a heavy browser runtime.
+OpenForensic achieves maximum I/O throughput by separating disk reading, cryptographic hashing, IOC scanning, and file writing into distinct asynchronous processing streams managed by Tokio runtime channels.
 
-### 1. Frontend Layer
-*   **Framework**: Built with modern web technologies and styled with raw CSS for a premium, dark-themed forensic interface.
-*   **Communication**: Invokes backend Rust commands asynchronously via Tauri's IPC mechanism.
+```mermaid
+graph TD
+    subgraph Storage & Memory Sources
+        RawDisk[Physical Drive / dev/rdisk / sys/block]
+        LiveSys[Live OS / VSS Shadow Copy]
+        RamDump[Physical RAM / winpmem / avml]
+    end
 
-### 2. Backend Engine (Rust)
-*   **Concurrency**: Utilizes `tokio` for highly concurrent, non-blocking I/O. Tasks are offloaded to blocking threads when dealing with heavy file I/O.
-*   **Streaming & Hashing**: Employs an asynchronous streaming architecture. As data blocks are read from raw devices, they are simultaneously passed through `tokio::sync::mpsc` channels to background writing, hashing (`sha2`, `md-5`), and keyword scanning tasks.
-*   **Cross-Platform Abstractions**: Abstracts OS-specific raw block device controls behind a unified `DeviceBackend` trait:
-    *   **Windows**: Queries `\\.\PhysicalDriveX` using the `windows` crate. Uses `CreateFileW` with query-only sharing to enforce software write-blocking.
-    *   **Linux**: Opens `/sys/block` devices with `O_DIRECT` to bypass the page cache and uses the `BLKROSET` ioctl to enforce read-only status.
-    *   **macOS**: Enumerates `/dev/rdiskX` nodes to bypass OS buffer caches.
-*   **Tool Integration**: Packages external forensics tools (like WinPmem) as bundled resources, executing them securely via `std::process::Command` to acquire physical memory on supported operating systems.
+    subgraph Rust Backend Engine
+        Reader[Async Block Reader / Software Write-Blocker]
+        Broadcast[Tokio MPSC Broadcast Channel]
+        
+        Hashers[4x Concurrent Hasher<br/>MD5 | SHA1 | SHA256 | SHA512]
+        Yara[YARA-X & Keyword Scanner]
+        Writer[Image Writer & Compression Engine<br/>Raw | E01 | AFF | Sparse]
+        
+        VolEngine[Volatility 3 & Threat Intel Engine<br/>AbuseIPDB | VirusTotal]
+    end
+
+    subgraph Storage & UI
+        CaseDB[(SQLite Case Management DB)]
+        Reports[HTML / PDF Evidence Reports]
+        UI[Tauri 2 / Vanilla CSS Forensic Dashboard]
+    end
+
+    RawDisk --> Reader
+    LiveSys --> Reader
+    RamDump --> VolEngine
+
+    Reader --> Broadcast
+    Broadcast --> Hashers
+    Broadcast --> Yara
+    Broadcast --> Writer
+
+    Hashers --> CaseDB
+    Yara --> CaseDB
+    Writer --> CaseDB
+    VolEngine --> CaseDB
+
+    CaseDB --> Reports
+    CaseDB <-->|Asynchronous IPC| UI
+    VolEngine -->|Real-time Event Streams| UI
+```
+
+### 🛡️ Hardware & Software Write-Blocking
+OpenForensic enforces read-only access at the OS kernel boundary:
+*   **Windows**: Opens block devices via `CreateFileW` requesting strictly `GENERIC_READ` with shared access attributes, preventing any write modification by the operating system or application.
+*   **Linux**: Opens block devices using `O_RDONLY | O_DIRECT` to bypass browser and OS page caches, and queries `BLKROSET` ioctls to verify read-only device enforcement.
+*   **macOS**: Communicates directly with raw disk nodes (`/dev/rdiskX`) to achieve unbuffered, read-only hardware speed.
 
 ---
 
-## 🚀 How to Use
+## 💻 System Requirements & Supported Platforms
 
-Because accessing raw disks and physical memory are highly privileged operations, **Forgelens must be run with administrative permissions**.
+| Platform | Supported Versions | Required Privileges | Special Notes |
+| :--- | :--- | :--- | :--- |
+| **🪟 Windows** | Windows 10, Windows 11 (64-bit) | **Administrator (UAC Uplevel)** | Bundles `winpmem_mini_x64` for RAM capture; requires VSS privileges for locked file extraction. |
+| **🐧 Linux** | Ubuntu 20.04+, Debian, Arch, Fedora | **Root (`sudo` / `su`)** | Requires raw block device access (`/dev/sdX`, `/dev/nvme0n1`). Supports `/proc/kcore` & `avml`. |
+| **🍎 macOS** | macOS 11.0 Big Sur or newer | **Root + Full Disk Access** | Terminal / app must be granted *Full Disk Access* under System Settings ➔ Privacy & Security. |
 
-### 🪟 Windows
-1.  Locate the compiled `forgelens-disk-imager.exe` binary.
-2.  Double-click the application. It has been configured with an embedded manifest to **always request Administrator privileges** automatically via UAC.
-3.  Click **Yes** on the UAC prompt to launch the dashboard.
-4.  Navigate to **Memory**, **Triage**, or **Image** tabs to begin forensic acquisition.
-
-### 🐧 Linux
-1.  Open your terminal.
-2.  Run the application with superuser privileges:
-    ```bash
-    sudo ./forgelens-disk-imager
-    ```
-
-### 🍎 macOS
-1.  Before running, you must grant your terminal application (e.g., Terminal, iTerm) **Full Disk Access** under:
-    `System Settings ➔ Privacy & Security ➔ Full Disk Access`.
-2.  Run with:
-    ```bash
-    sudo ./forgelens-disk-imager
-    ```
+### Minimum Hardware
+*   **CPU**: 4+ Cores recommended for parallel SHA-512 hashing and YARA rule compilation.
+*   **RAM**: 4 GB minimum (8 GB+ recommended when analyzing multi-gigabyte RAM dumps in Volatility).
+*   **Storage**: NVMe / SSD destination storage recommended to prevent write-bottlenecks during multi-algorithm hashing.
 
 ---
 
-## 📚 Documentation & Guides
+## 🚀 Quick Start & Installation
 
-*   [**ForgeLens Hash System Guide**](docs/hashes_guides.md): Learn how our 3-stage hashing architecture works and why container hashes (like AFF) behave differently from raw evidence hashes.
+Because OpenForensic interacts directly with raw block storage devices and kernel memory, it **must be executed with elevated administrative privileges**.
 
----
+### 1. Running on Windows
+1. Download or compile the `openforensic.exe` binary.
+2. Launch the application. The embedded UAC manifest will automatically prompt for **Administrator elevation**.
+3. Click **Yes** on the UAC dialog.
+4. Select your target device from the **Source Selector** sidebar and choose your investigation tab.
 
-## 🛠️ Building from Source
-
-### Prerequisites
-We use **`mise`** to manage the Rust toolchain version. Make sure you have it installed:
-*   [mise documentation](https://mise.jdx.dev/)
-
-### Step 1: Install Dependencies
-Install Node.js dependencies for the Tauri CLI:
+### 2. Running on Linux
+Execute the binary via terminal using `sudo`:
 ```bash
+sudo ./target/release/openforensic
+```
+
+### 3. Running on macOS
+1. Open **System Settings** ➔ **Privacy & Security** ➔ **Full Disk Access**.
+2. Enable access for your Terminal or target IDE.
+3. Launch from terminal with superuser privileges:
+```bash
+sudo ./target/release/openforensic
+```
+
+---
+
+## 🖥️ Dashboard Overview & Workflow
+
+1. **📂 Disk Imaging Tab**:
+   * Select a physical block device or logical directory.
+   * Choose destination format (`Raw .dd`, `E01`, or `AFF`).
+   * Enable sector compression, sparse zero-block skipping, and select verification hash algorithms.
+   * Attach optional YARA rulesets (`.yar`) for real-time IOC alerting during the imaging process.
+
+2. **⚡ System Triage Tab**:
+   * One-click execution of rapid system collection: running processes, network sockets, browser histories, and event logs.
+   * Open the built-in **Triage Workbench** to load acquired SQLite databases (such as Chrome History or triage output) and run custom SQL queries.
+
+3. **🔴 Live Acquisition Tab**:
+   * Acquire live system volume shadow copies without rebooting.
+   * Check **Capture Physical Memory (RAM)** to dump volatile system memory using auto-detected or custom tools (`winpmem`, `avml`).
+
+4. **⏱️ Timeline Generator Tab**:
+   * Input any acquired raw disk image (`.dd`).
+   * Specify output destination to generate a unified, chronological timeline (`timeline.csv` / `timeline.json`) of file system modifications and journal entries.
+
+5. **📁 Case Management Tab**:
+   * Create and manage forensic cases with investigator details and agency metadata.
+   * Review historical acquisition jobs, verify stored SHA-256/SHA-512 hashes, and export self-contained HTML evidence reports.
+
+6. **🧠 RAM Analysis Tab**:
+   * Select an acquired memory dump (`.raw`, `.vmem`, `.dmp`) and specify your Volatility 3 script/executable path.
+   * Select an analysis profile (e.g., `windows.pslist.PsList`, `windows.netstat.NetStat`, `windows.malfind.Malfind`).
+   * Enable **AbuseIPDB** and **VirusTotal** API enrichment to automatically flag malicious remote IP connections and suspicious process hashes in real time.
+
+---
+
+## 🛠️ Building & Developing from Source
+
+We use [**mise**](https://mise.jdx.dev/) to manage reproducible toolchains (Rust 1.85+, Node.js).
+
+### Step 1: Clone & Install Dependencies
+```bash
+git clone https://github.com/rootwithkhandal/forensic-disk-imager.git
+cd forensic-disk-imager
 npm install
 ```
 
-### Step 2: Build & Run in Development Mode
-To run the live-reloading Tauri window in development mode:
+### Step 2: Verify Toolchain & Check Build
 ```bash
-npx tauri dev
+mise run check
+# Or manually:
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-### Step 3: Compile for Production
-To bundle the application into a production executable, MSI, or app package:
+### Step 3: Run Development Server with Live-Reload
+To launch the Tauri dev window:
 ```bash
-npx tauri build
+npm run tauri dev
 ```
-*(Or use `mise run build` which runs `cargo build --release` under the hood).*
+*(On Windows, run your terminal as Administrator if testing raw physical disk scanning).*
+
+### Step 4: Compile Production Executable
+To build the optimized release binary and installer packages:
+```bash
+npm run tauri build
+```
+The compiled standalone binary will be output to `src-tauri/target/release/openforensic.exe`.
 
 ---
 
-## ⚖️ Legal Disclaimer
-*This tool is intended for authorized forensic investigations and data recovery purposes only. Unauthorized imaging of storage media or accessing private devices without consent may violate local computer privacy and security legislation.*
+## 📚 Documentation & Reference Guides
+
+*   [**OpenForensic Hash System Guide**](docs/hashes_guides.md): Deep dive into our 3-stage cryptographic verification architecture and how container hashes (E01/AFF) differ from raw stream hashes.
+*   [**Security Policy**](SECURITY.md): Vulnerability reporting guidelines and scope definitions.
+
+---
+
+## ⚖️ Legal & Forensic Disclaimer
+
+*OpenForensic is developed strictly for lawful digital forensics investigations, incident response, data recovery, and academic research. Accessing raw physical disks, acquiring volatile system memory, or imaging computer media without explicit legal authorization or device ownership may violate local, state, or international computer privacy and crime laws. The developers assume no liability for misuse.*

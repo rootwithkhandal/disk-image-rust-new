@@ -23,7 +23,7 @@ pub fn generate_pdf_report(
     };
 
     let (doc, page1, layer1) = PdfDocument::new(
-        "Forgelens Forensic Acquisition Report",
+        "OpenForensic Acquisition Report",
         Mm(210.0),
         Mm(297.0),
         "Layer 1",
@@ -44,7 +44,7 @@ pub fn generate_pdf_report(
     };
 
     // Title
-    write_text("Forgelens Forensic Acquisition Report", &font_bold, 18.0, margin_left, &mut cursor_y, 10.0);
+    write_text("OpenForensic Acquisition Report", &font_bold, 18.0, margin_left, &mut cursor_y, 10.0);
     cursor_y -= 5.0; // Extra spacing
 
     // Case Information

@@ -113,6 +113,6 @@ pub fn generate_report_seal(report_content: &str, case_number: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(report_content.as_bytes());
     hasher.update(case_number.as_bytes());
-    hasher.update(b"FORGELENS-SECURE-FORENSIC-SIGNING-SALT-2026");
+    hasher.update(b"OPENFORENSIC-SECURE-FORENSIC-SIGNING-SALT-2026");
     hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
 }

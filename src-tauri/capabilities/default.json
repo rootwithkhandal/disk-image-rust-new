@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/schema.json",
   "identifier": "default",
-  "description": "Default permissions for Forgelens app",
+  "description": "Default permissions for OpenForensic app",
   "windows": ["*"],
   "permissions": [
     "core:default",

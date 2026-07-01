@@ -43,7 +43,7 @@ fn to_ist_rfc2822(dt: &chrono::DateTime<chrono::Utc>) -> String {
 pub fn generate_txt_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Result<()> {
     let mut file = File::create(path)?;
     writeln!(file, "==================================================")?;
-    writeln!(file, "          FORGELENS DISK IMAGER REPORT            ")?;
+    writeln!(file, "              OPENFORENSIC REPORT                 ")?;
     writeln!(file, "==================================================")?;
     writeln!(file, "Case Number:     {}", data.case_number)?;
     writeln!(file, "Examiner:        {}", data.examiner)?;
@@ -294,7 +294,7 @@ pub fn generate_html_report<P: AsRef<Path>>(path: P, data: &ReportData) -> Resul
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ForgeLens Forensic Report — {{CASE_NUMBER}}</title>
+    <title>OpenForensic Report — {{CASE_NUMBER}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
