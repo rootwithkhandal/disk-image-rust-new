@@ -20,6 +20,7 @@ mod ram_analysis;
 pub mod plugins;
 pub mod siem;
 pub mod cli;
+pub mod pgp;
 
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
