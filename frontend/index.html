@@ -36,6 +36,7 @@
       <button class="tab-btn" id="btn-tab-timeline" data-tab="timeline">⏱️ Timeline</button>
       <button class="tab-btn" id="btn-tab-cases" data-tab="cases">📁 Case Management</button>
       <button class="tab-btn" id="btn-tab-ram" data-tab="ram">🧠 RAM Analysis</button>
+      <button class="tab-btn" id="btn-tab-pgp" data-tab="pgp">🔐 PGP Provenance</button>
     </div>
 
     <!-- MAIN DASHBOARD CONTENT -->
@@ -617,6 +618,63 @@
           </div>
           <div id="console-logs" class="console-logs scroll-area">
             <!-- Logs populated dynamically -->
+          </div>
+        </div>
+
+        <!-- PGP PROVENANCE TAB -->
+        <div id="tab-pgp-content" class="tab-panel hidden">
+          <div class="panel-header">
+            <h2>🔐 Court-Ready PGP Integrity & Provenance</h2>
+          </div>
+          <div class="scroll-area">
+            <div class="config-form" style="display: flex; flex-direction: column; gap: 20px;">
+              
+              <!-- Key Management Card -->
+              <div class="stat-card" style="padding: 20px; background: var(--bg-deep); border: 1px solid var(--color-border); border-radius: 8px;">
+                <h3 style="margin-top: 0; color: var(--color-primary); display: flex; align-items: center; gap: 8px;">
+                  <span>🔑 Active Forensic PGP Signing Key</span>
+                </h3>
+                <p class="help-text" style="margin-bottom: 15px;">
+                  All forensic reports and evidence manifests are automatically signed with this pure-Rust Sequoia PGP key to guarantee tamper-proof chain of custody without relying on system GnuPG.
+                </p>
+                <div id="pgp-key-info" style="font-family: var(--font-mono); font-size: 13px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 6px; border-left: 3px solid var(--color-primary); margin-bottom: 15px;">
+                  <div style="color: var(--text-muted);">Loading active PGP key info...</div>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                  <input type="text" id="pgp-user-id-input" placeholder="Examiner Name <email@dfir.local>" value="OpenForensic Investigator <dfir@openforensic.local>" style="flex: 1; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); color: var(--text-main); border-radius: 6px;">
+                  <button type="button" id="btn-generate-pgp-key" class="btn btn-secondary">⚡ Generate / Reset Keypair</button>
+                </div>
+              </div>
+
+              <!-- Verification Card -->
+              <div class="stat-card" style="padding: 20px; background: var(--bg-deep); border: 1px solid var(--color-border); border-radius: 8px;">
+                <h3 style="margin-top: 0; color: #10b981; display: flex; align-items: center; gap: 8px;">
+                  <span>🛡️ Verify Evidence Manifest Integrity</span>
+                </h3>
+                <p class="help-text" style="margin-bottom: 15px;">
+                  Verify an acquired evidence manifest against its detached ASCII-armored PGP signature (`.asc`). Detects any post-collection tampering or unauthorized modification.
+                </p>
+                <div class="form-group full-width" style="margin-bottom: 15px;">
+                  <label for="pgp-manifest-path">Manifest / Report File to Verify:</label>
+                  <div class="input-browse-group">
+                    <input type="text" id="pgp-manifest-path" placeholder="Select manifest or report file (.txt, .json, .csv)..." readonly style="flex: 1;">
+                    <button type="button" id="btn-browse-pgp-manifest" class="btn btn-secondary">Browse File...</button>
+                  </div>
+                </div>
+                <div class="form-group full-width" style="margin-bottom: 15px;">
+                  <label for="pgp-sig-path">Detached Signature File (.asc) (Optional, defaults to &lt;file&gt;.asc):</label>
+                  <div class="input-browse-group">
+                    <input type="text" id="pgp-sig-path" placeholder="Select signature file (.asc)..." readonly style="flex: 1;">
+                    <button type="button" id="btn-browse-pgp-sig" class="btn btn-secondary">Browse Signature...</button>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 15px;">
+                  <button type="button" id="btn-verify-pgp-manifest" class="btn btn-primary" style="background: #10b981; border-color: #059669;">🔍 Verify Integrity Signature</button>
+                </div>
+                <div id="pgp-verify-result" style="display: none; padding: 15px; border-radius: 6px; font-family: var(--font-mono); font-size: 13px;"></div>
+              </div>
+
+            </div>
           </div>
         </div>
 

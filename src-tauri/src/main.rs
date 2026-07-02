@@ -352,8 +352,15 @@ async fn start_acquisition(
                         plugin_results: result.plugin_results.clone(),
                     };
                     let report_path = dest_file_path.join("logical_report.txt");
-                    let _ = crate::report::generate_txt_report(report_path, &report_data);
+                    let _ = crate::report::generate_txt_report(&report_path, &report_data);
                     log("[SYSTEM] Logical report generated successfully.".to_string()).await;
+                    if let Ok(app_dir) = app_handle.path().app_data_dir() {
+                        if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
+                            if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
+                                log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display())).await;
+                            }
+                        }
+                    }
                     
                     let hash_log = format!("Pre: {:?}\nPost: {:?}", report_data.pre_hashes, report_data.post_hashes);
                     let _ = crate::case_management::log_acquisition_to_db(
@@ -541,6 +548,13 @@ async fn start_acquisition(
                     let _ = crate::report::generate_json_report(dest_file_path.with_extension("report.json"), &report_data);
                     let _ = crate::report::generate_csv_report(dest_file_path.with_extension("report.csv"), &report_data);
                     log("[SYSTEM] Multi-format reports (HTML, JSON, CSV) generated successfully.".to_string()).await;
+                    if let Ok(app_dir) = app_handle.path().app_data_dir() {
+                        if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
+                            if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
+                                log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display())).await;
+                            }
+                        }
+                    }
 
                     if config_input.digital_signature {
                         if let Ok(content) = std::fs::read_to_string(&report_path) {
@@ -1096,6 +1110,13 @@ async fn start_live_acquisition(
         let _ = crate::report::generate_html_report(dest_dir.join("live_acquisition_report.html"), &report_data);
         let _ = crate::report::generate_json_report(dest_dir.join("live_acquisition_report.json"), &report_data);
         let _ = crate::report::generate_csv_report(dest_dir.join("live_acquisition_report.csv"), &report_data);
+        if let Ok(app_dir) = app_handle.path().app_data_dir() {
+            if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
+                if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
+                    let _ = tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
+                }
+            }
+        }
 
         let _ = tx.send(ProgressEvent::Log(
             "[LIVE] Live acquisition pipeline complete. Reports generated.".to_string()
@@ -1166,12 +1187,42 @@ async fn scan_plugins_directory(dir: String, state: State<'_, PluginManagerState
     Ok(manager.scan_directory(std::path::Path::new(&dir)))
 }
 
+#[tauri::command]
+async fn pgp_get_key_info(app_handle: AppHandle) -> Result<crate::pgp::PgpKeyInfo, String> {
+    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let (_, _, info) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))?;
+    Ok(info)
+}
+
+#[tauri::command]
+async fn pgp_generate_new_key(app_handle: AppHandle, user_id: String) -> Result<crate::pgp::PgpKeyInfo, String> {
+    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let (priv_path, pub_path) = crate::pgp::PgpKeyManager::get_default_keypair_paths(Some(&app_dir));
+    let (priv_pem, pub_pem, info) = crate::pgp::PgpKeyManager::generate_keypair(&user_id)?;
+    crate::pgp::PgpKeyManager::save_keypair(&priv_path, &pub_path, &priv_pem, &pub_pem)?;
+    Ok(info)
+}
+
+#[tauri::command]
+async fn pgp_verify_manifest(app_handle: AppHandle, manifest_path: String, sig_path: String, pub_key_pem: Option<String>) -> Result<crate::pgp::PgpVerificationReport, String> {
+    let pub_pem = match pub_key_pem {
+        Some(pem) if !pem.trim().is_empty() => pem,
+        _ => {
+            let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+            let (_, pub_pem, _) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))?;
+            pub_pem
+        }
+    };
+    crate::pgp::PgpManifestVerifier::verify_file(std::path::Path::new(&manifest_path), std::path::Path::new(&sig_path), &pub_pem)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_cli = args.iter().any(|arg| {
         arg == "--cli" || arg == "cli" || arg == "acquire" || arg == "image" || arg == "triage" ||
         arg == "list-devices" || arg == "devices" || arg == "list-volumes" || arg == "volumes" ||
-        arg == "live" || arg == "ram" || arg == "volatility" || arg == "--help" || arg == "-h" ||
+        arg == "live" || arg == "ram" || arg == "volatility" || arg == "pgp-keygen" ||
+        arg == "pgp-sign" || arg == "pgp-verify" || arg == "--help" || arg == "-h" ||
         arg == "--version" || arg == "-V"
     });
 
@@ -1216,7 +1267,10 @@ fn main() {
             test_siem_connection,
             save_siem_config,
             get_siem_config,
-            export_triage_to_siem
+            export_triage_to_siem,
+            pgp_get_key_info,
+            pgp_generate_new_key,
+            pgp_verify_manifest
         ])
         .setup(|app| {
             let _ = crate::case_management::init_db(app.handle());

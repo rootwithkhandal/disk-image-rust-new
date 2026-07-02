@@ -52,3 +52,4 @@ src-tauri/*.pub
 .obsidian
 
 undefined/
+mcp.json

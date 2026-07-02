@@ -564,7 +564,7 @@ pub async fn acquire_logical(
     std::fs::create_dir_all(dest_dir)?;
     
     let manifest_path = dest_dir.join("logical_manifest.txt");
-    let mut manifest = File::create(manifest_path)?;
+    let mut manifest = File::create(&manifest_path)?;
     writeln!(manifest, "=== OPENFORENSIC LOGICAL ACQUISITION MANIFEST ===")?;
     writeln!(manifest, "Source Directory: {}", source_dir.display())?;
     writeln!(manifest, "Case Number:      {}", config.case_number)?;
@@ -688,6 +688,14 @@ pub async fn acquire_logical(
     writeln!(manifest, "Total Files Copied: {}", files_copied)?;
     writeln!(manifest, "Total Size:         {} bytes", bytes_read)?;
     writeln!(manifest, "=== END OF MANIFEST ===")?;
+    manifest.flush()?;
+    drop(manifest);
+
+    if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(None) {
+        if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&manifest_path, &priv_pem) {
+            let _ = progress_tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
+        }
+    }
     
     let global_hashes = global_hashers.finalize();
     
@@ -1000,6 +1008,13 @@ pub async fn acquire_triage(
         writeln!(file, "Operating System:{}", std::env::consts::OS)?;
         writeln!(file, "Architecture:    {}", std::env::consts::ARCH)?;
         writeln!(file, "==================================================")?;
+    }
+
+    let summary_path = dest_dir.join("triage_summary.txt");
+    if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(None) {
+        if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&summary_path, &priv_pem) {
+            let _ = progress_tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
+        }
     }
 
     let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Rapid forensic triage completed successfully!".to_string())).await;

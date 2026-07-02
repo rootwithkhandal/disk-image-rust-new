@@ -173,6 +173,38 @@ pub enum CliSubcommand {
         #[arg(long)]
         ioc_enrich: bool,
     },
+
+    /// Generate a new PGP signing keypair for court-ready manifest provenance
+    #[command(name = "pgp-keygen")]
+    PgpKeygen {
+        /// User ID string (e.g. "Forensic Investigator <exam@dfir.local>")
+        #[arg(short, long, default_value = "OpenForensic Workstation <investigator@openforensic.local>")]
+        user: String,
+    },
+
+    /// Create a detached ASCII-armored PGP signature (.asc) for an evidence file
+    #[command(name = "pgp-sign")]
+    PgpSign {
+        /// Path to evidence or manifest file to sign
+        #[arg(short, long)]
+        file: String,
+    },
+
+    /// Verify a detached PGP signature (.asc) against an evidence file
+    #[command(name = "pgp-verify")]
+    PgpVerify {
+        /// Path to evidence or manifest file
+        #[arg(short, long)]
+        file: String,
+
+        /// Path to detached signature file (.asc). If not specified, defaults to <file>.asc
+        #[arg(short, long)]
+        sig: Option<String>,
+
+        /// Optional path to public key file (.asc)
+        #[arg(short, long)]
+        pubkey: Option<String>,
+    },
 }
 
 pub fn parse_hash_algorithms(names: &[String]) -> Vec<HashAlgorithm> {

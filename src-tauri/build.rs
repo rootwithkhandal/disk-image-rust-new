@@ -61,5 +61,6 @@ fn main() {
 "#));
     }
 
+    println!("cargo:rerun-if-changed=../frontend");
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }

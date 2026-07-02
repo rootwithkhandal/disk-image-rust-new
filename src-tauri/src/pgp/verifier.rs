@@ -62,7 +62,10 @@ impl PgpManifestVerifier {
         public_key_pem: &str,
     ) -> Result<PgpVerificationReport, String> {
         let p = &StandardPolicy::new();
-        let cert = Cert::from_bytes(public_key_pem.as_bytes())
+        let cert = openpgp::cert::CertParser::from_bytes(public_key_pem.as_bytes())
+            .map_err(|e| format!("Failed to initialize cert parser: {}", e))?
+            .next()
+            .ok_or_else(|| "No certificate found in public key data".to_string())?
             .map_err(|e| format!("Failed to parse public key for verification: {}", e))?;
 
         let helper = ForensicVerifierHelper {

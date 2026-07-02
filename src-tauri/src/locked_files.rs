@@ -325,5 +325,11 @@ pub async fn copy_locked_files(
         let _ = writeln!(manifest, "=== END OF MANIFEST ===");
     }
 
+    if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(None) {
+        if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&manifest_path, &priv_pem) {
+            let _ = progress_tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
+        }
+    }
+
     Ok(results)
 }

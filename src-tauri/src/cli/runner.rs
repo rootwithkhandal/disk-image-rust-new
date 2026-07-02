@@ -181,6 +181,7 @@ pub fn run_cli(args: CliArgs) -> Result<(), String> {
                 &config.notes,
             );
 
+            let start_time_utc = chrono::Utc::now();
             match crate::acquisition::acquire(
                 &mut source_dev,
                 dest_writer,
@@ -189,8 +190,53 @@ pub fn run_cli(args: CliArgs) -> Result<(), String> {
                 &checkpoint_path,
                 0,
             ).await {
-                Ok(_) => {
+                Ok(result) => {
                     let _ = progress_handle.await;
+                    let end_time_utc = chrono::Utc::now();
+                    let mut model = "Unknown".to_string();
+                    let mut serial = "Unknown".to_string();
+                    if let Ok(devices) = crate::platform::ActiveBackend::enumerate_devices() {
+                        if let Some(d) = devices.into_iter().find(|d| d.path == source) {
+                            model = d.model;
+                            serial = d.serial;
+                        }
+                    }
+                    let report_data = crate::report::ReportData {
+                        case_number: config.case_number.clone(),
+                        examiner: config.examiner.clone(),
+                        evidence_id: config.evidence_id.clone(),
+                        notes: config.notes.clone(),
+                        imaging_mode: config.imaging_mode.clone(),
+                        format: config.format.clone(),
+                        source_device: source.clone(),
+                        source_size: source_dev.size,
+                        source_model: model,
+                        source_serial: serial,
+                        dest_file: dest_file_path.display().to_string(),
+                        start_time: start_time_utc,
+                        end_time: end_time_utc,
+                        bad_sectors: result.bad_sectors,
+                        pre_hashes: std::collections::HashMap::new(),
+                        hashes: result.hashes.clone(),
+                        post_hashes: None,
+                        vss_snapshot_id: None,
+                        ram_dump_path: None,
+                        ram_dump_size: None,
+                        ram_dump_hash: None,
+                        locked_files_copied: Vec::new(),
+                        consistency_blocks_checked: None,
+                        consistency_blocks_matched: None,
+                        consistency_mismatches: Vec::new(),
+                        plugin_results: result.plugin_results.clone(),
+                    };
+                    let report_path = dest_file_path.with_extension("report.txt");
+                    let _ = crate::report::generate_txt_report(&report_path, &report_data);
+                    println!("[SYSTEM] Headless imaging report generated: {}", report_path.display());
+                    if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(None) {
+                        if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
+                            println!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display());
+                        }
+                    }
                     Ok(())
                 }
                 Err(e) => {
@@ -364,5 +410,67 @@ pub fn run_cli(args: CliArgs) -> Result<(), String> {
                 }
             }
         }),
+        CliSubcommand::PgpKeygen { user } => {
+            println!("Generating new court-ready PGP signing keypair for: {}", user);
+            let (priv_path, pub_path) = crate::pgp::PgpKeyManager::get_default_keypair_paths(None);
+            let (priv_pem, pub_pem, info) = crate::pgp::PgpKeyManager::generate_keypair(&user)?;
+            crate::pgp::PgpKeyManager::save_keypair(&priv_path, &pub_path, &priv_pem, &pub_pem)?;
+            println!("\n=== PGP KEYPAIR GENERATED SUCCESSFULLY ===");
+            println!("User ID:     {}", info.user_id);
+            println!("Fingerprint: {}", info.fingerprint);
+            println!("Key ID:      {}", info.key_id);
+            println!("Private Key: {}", priv_path.display());
+            println!("Public Key:  {}", pub_path.display());
+            println!("==========================================\n");
+            Ok(())
+        }
+        CliSubcommand::PgpSign { file } => {
+            let file_path = std::path::Path::new(&file);
+            if !file_path.exists() {
+                return Err(format!("File not found: {}", file));
+            }
+            let (priv_pem, _, info) = crate::pgp::PgpKeyManager::load_or_generate_default(None)?;
+            println!("Signing file {} using PGP key {} ({})", file, info.key_id, info.user_id);
+            let sig_path = crate::pgp::PgpManifestSigner::sign_file(file_path, &priv_pem)?;
+            println!("\n=== DETACHED PGP SIGNATURE CREATED ===");
+            println!("Signature File: {}", sig_path.display());
+            println!("======================================\n");
+            Ok(())
+        }
+        CliSubcommand::PgpVerify { file, sig, pubkey } => {
+            let file_path = std::path::Path::new(&file);
+            if !file_path.exists() {
+                return Err(format!("Evidence file not found: {}", file));
+            }
+            let sig_path = match sig {
+                Some(s) => std::path::PathBuf::from(s),
+                None => std::path::PathBuf::from(format!("{}.asc", file)),
+            };
+            if !sig_path.exists() {
+                return Err(format!("Signature file not found: {}", sig_path.display()));
+            }
+            let pub_pem = match pubkey {
+                Some(p) => std::fs::read_to_string(&p).map_err(|e| format!("Failed to read public key {}: {}", p, e))?,
+                None => {
+                    let (_, pub_pem, _) = crate::pgp::PgpKeyManager::load_or_generate_default(None)?;
+                    pub_pem
+                }
+            };
+            println!("Verifying evidence file {} against signature {} ...", file, sig_path.display());
+            let report = crate::pgp::PgpManifestVerifier::verify_file(file_path, &sig_path, &pub_pem)?;
+            if report.is_valid {
+                println!("\n=== PGP SIGNATURE VERIFICATION: SUCCESS / VALID ===");
+                println!("Signer User ID:     {}", report.signer_user_id);
+                println!("Signer Fingerprint: {}", report.signer_fingerprint);
+                println!("Details:            {}", report.message);
+                println!("===================================================\n");
+                Ok(())
+            } else {
+                eprintln!("\n=== PGP SIGNATURE VERIFICATION: FAILED / TAMPERED ===");
+                eprintln!("Details: {}", report.message);
+                eprintln!("=====================================================\n");
+                Err("PGP Signature verification failed.".to_string())
+            }
+        }
     }
 }

@@ -1,5 +1,4 @@
 use sequoia_openpgp as openpgp;
-use openpgp::cert::Cert;
 use openpgp::parse::Parse;
 use openpgp::serialize::stream::{Message, Signer as OpenpgpSigner};
 use openpgp::policy::StandardPolicy;
@@ -14,7 +13,10 @@ impl PgpManifestSigner {
     /// Produces an ASCII-armored detached PGP signature (`-----BEGIN PGP SIGNATURE----- ...`) for arbitrary data
     pub fn sign_detached(data: &[u8], private_key_pem: &str) -> Result<String, String> {
         let p = &StandardPolicy::new();
-        let cert = Cert::from_bytes(private_key_pem.as_bytes())
+        let cert = openpgp::cert::CertParser::from_bytes(private_key_pem.as_bytes())
+            .map_err(|e| format!("Failed to initialize cert parser: {}", e))?
+            .next()
+            .ok_or_else(|| "No certificate found in private key data".to_string())?
             .map_err(|e| format!("Failed to parse private key: {}", e))?;
 
         let keypair = cert
@@ -31,9 +33,9 @@ impl PgpManifestSigner {
 
         let mut sink = Vec::new();
         {
-            let armored = ArmorWriter::new(&mut sink, openpgp::armor::Kind::Signature)
+            let mut armored = ArmorWriter::new(&mut sink, openpgp::armor::Kind::Signature)
                 .map_err(|e| format!("Failed to create armored writer: {}", e))?;
-            let message = Message::new(armored);
+            let message = Message::new(&mut armored);
             let mut signer = OpenpgpSigner::new(message, keypair)
                 .map_err(|e| format!("Failed to initialize PGP signer builder: {}", e))?
                 .detached()
@@ -45,6 +47,9 @@ impl PgpManifestSigner {
             signer
                 .finalize()
                 .map_err(|e| format!("Failed to finalize PGP signature: {}", e))?;
+            armored
+                .finalize()
+                .map_err(|e| format!("Failed to finalize ASCII armor writer: {}", e))?;
         }
 
         String::from_utf8(sink).map_err(|e| format!("Invalid UTF-8 in PGP signature: {}", e))

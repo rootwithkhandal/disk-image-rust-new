@@ -6,9 +6,40 @@
 // Destructure Tauri APIs from global window injection or fall back to browser simulation
 let invoke, listen;
 
-if (window.__TAURI__) {
-  invoke = window.__TAURI__.core.invoke;
-  listen = window.__TAURI__.event.listen;
+const getTauriInvoke = () => {
+  if (typeof window !== 'undefined') {
+    if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke;
+    if (window.__TAURI__?.tauri?.invoke) return window.__TAURI__.tauri.invoke;
+    if (window.__TAURI__?.invoke) return window.__TAURI__.invoke;
+    if (window.__TAURI_INTERNALS__?.invoke) return window.__TAURI_INTERNALS__.invoke;
+  }
+  return null;
+};
+
+const getTauriListen = () => {
+  if (typeof window !== 'undefined') {
+    if (window.__TAURI__?.event?.listen) return window.__TAURI__.event.listen;
+    if (window.__TAURI__?.listen) return window.__TAURI__.listen;
+  }
+  return null;
+};
+
+if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNALS__)) {
+  invoke = async (cmd, args) => {
+    const fn = getTauriInvoke();
+    if (typeof fn === 'function') {
+      return fn(cmd, args);
+    }
+    throw new Error(`Tauri IPC invoke function not found when executing command: ${cmd}`);
+  };
+
+  listen = async (event, callback) => {
+    const fn = getTauriListen();
+    if (typeof fn === 'function') {
+      return fn(event, callback);
+    }
+    return () => {};
+  };
 } else {
   // Browser simulation mode fallback
   const mockListeners = {};
@@ -312,10 +343,16 @@ async function init() {
   
   // 2. Fetch Admin privileges
   try {
-    const isAdmin = await invoke('get_admin_status');
+    const adminPromise = invoke('get_admin_status');
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout retrieving admin status')), 5000));
+    const isAdmin = await Promise.race([adminPromise, timeoutPromise]);
     updateAdminBadge(isAdmin);
   } catch (e) {
     logMessage('ERROR', 'Failed to retrieve privileges: ' + e);
+    if (elements.adminBadge) {
+      elements.adminBadge.className = 'badge badge-needs-admin';
+      elements.adminBadge.textContent = 'Privilege Check Failed';
+    }
   }
 
   // 3. Register Global Event Listeners
@@ -520,6 +557,7 @@ function setupEventListeners() {
   document.getElementById('btn-tab-timeline').addEventListener('click', () => switchTab('timeline'));
   document.getElementById('btn-tab-cases').addEventListener('click', () => { switchTab('cases'); loadCases(); });
   document.getElementById('btn-tab-ram').addEventListener('click', () => switchTab('ram'));
+  document.getElementById('btn-tab-pgp').addEventListener('click', () => { switchTab('pgp'); loadPgpKeyInfo(); });
 
   document.getElementById('btn-refresh-cases').addEventListener('click', loadCases);
 
@@ -928,6 +966,108 @@ function setupEventListeners() {
     });
   }
 
+  // PGP Button Listeners
+  const btnBrowsePgpManifest = document.getElementById('btn-browse-pgp-manifest');
+  if (btnBrowsePgpManifest) {
+    btnBrowsePgpManifest.addEventListener('click', async () => {
+      try {
+        const file = await invoke('browse_file', { ext: 'txt' });
+        if (file) {
+          document.getElementById('pgp-manifest-path').value = file;
+          logMessage('SYSTEM', 'Selected manifest file for PGP verification: ' + file);
+        }
+      } catch (e) {
+        logMessage('ERROR', 'Failed to browse manifest file: ' + e);
+      }
+    });
+  }
+
+  const btnBrowsePgpSig = document.getElementById('btn-browse-pgp-sig');
+  if (btnBrowsePgpSig) {
+    btnBrowsePgpSig.addEventListener('click', async () => {
+      try {
+        const file = await invoke('browse_file', { ext: 'asc' });
+        if (file) {
+          document.getElementById('pgp-sig-path').value = file;
+          logMessage('SYSTEM', 'Selected signature file: ' + file);
+        }
+      } catch (e) {
+        logMessage('ERROR', 'Failed to browse signature file: ' + e);
+      }
+    });
+  }
+
+  const btnGeneratePgpKey = document.getElementById('btn-generate-pgp-key');
+  if (btnGeneratePgpKey) {
+    btnGeneratePgpKey.addEventListener('click', async () => {
+      const userIdInput = document.getElementById('pgp-user-id-input');
+      const userId = userIdInput ? userIdInput.value : 'OpenForensic Workstation <dfir@openforensic.local>';
+      try {
+        logMessage('SYSTEM', 'Generating new 3072-bit PGP signing keypair...');
+        btnGeneratePgpKey.disabled = true;
+        btnGeneratePgpKey.textContent = 'Generating...';
+        const info = await invoke('pgp_generate_new_key', { userId });
+        renderPgpKeyInfo(info);
+        logMessage('SYSTEM', `PGP keypair generated successfully. Key ID: ${info.key_id}`);
+      } catch (e) {
+        logMessage('ERROR', 'Failed to generate PGP keypair: ' + e);
+        alert('Failed to generate PGP keypair: ' + e);
+      } finally {
+        btnGeneratePgpKey.disabled = false;
+        btnGeneratePgpKey.textContent = '⚡ Generate / Reset Keypair';
+      }
+    });
+  }
+
+  const btnVerifyPgpManifest = document.getElementById('btn-verify-pgp-manifest');
+  if (btnVerifyPgpManifest) {
+    btnVerifyPgpManifest.addEventListener('click', async () => {
+      const manifestPath = document.getElementById('pgp-manifest-path').value;
+      let sigPath = document.getElementById('pgp-sig-path').value;
+      if (!manifestPath) {
+        alert('Please select a manifest or report file to verify.');
+        return;
+      }
+      if (!sigPath) {
+        sigPath = manifestPath + '.asc';
+      }
+      const resultDiv = document.getElementById('pgp-verify-result');
+      resultDiv.style.display = 'block';
+      resultDiv.style.background = 'rgba(255, 255, 0, 0.1)';
+      resultDiv.style.border = '1px solid #eab308';
+      resultDiv.style.color = '#eab308';
+      resultDiv.innerHTML = '🔍 Verifying cryptographic PGP signature...';
+
+      try {
+        logMessage('SYSTEM', `Verifying PGP signature for ${manifestPath} against ${sigPath}...`);
+        const report = await invoke('pgp_verify_manifest', { manifestPath, sigPath, pubKeyPem: null });
+        if (report.is_valid) {
+          resultDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+          resultDiv.style.border = '1px solid #10b981';
+          resultDiv.style.color = '#10b981';
+          resultDiv.innerHTML = `✅ <strong>VALID PGP SIGNATURE & PROVENANCE VERIFIED</strong><br><br>` +
+            `<strong>Signer Fingerprint:</strong> ${report.signer_fingerprint}<br>` +
+            `<strong>Signer Identity:</strong> ${report.signer_user_id}<br>` +
+            `<strong>Status:</strong> ${report.message}`;
+          logMessage('SYSTEM', `PGP verification successful for ${manifestPath}. Signer: ${report.signer_user_id}`);
+        } else {
+          resultDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+          resultDiv.style.border = '1px solid #ef4444';
+          resultDiv.style.color = '#ef4444';
+          resultDiv.innerHTML = `❌ <strong>PGP VERIFICATION FAILED / TAMPER DETECTED</strong><br><br>` +
+            `<strong>Status:</strong> ${report.message}`;
+          logMessage('ERROR', `PGP verification FAILED for ${manifestPath}: ${report.message}`);
+        }
+      } catch (e) {
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+        resultDiv.style.border = '1px solid #ef4444';
+        resultDiv.style.color = '#ef4444';
+        resultDiv.innerHTML = `❌ <strong>VERIFICATION ERROR:</strong> ${e}`;
+        logMessage('ERROR', `PGP verification error: ${e}`);
+      }
+    });
+  }
+
   // Listen to Tauri Backend events
   listen('acquisition-event', (event) => {
     handleBackendEvent(event.payload);
@@ -988,6 +1128,10 @@ function switchTab(tabName) {
   } else if (tabName === 'ram') {
     document.getElementById('btn-tab-ram').classList.add('active');
     document.getElementById('tab-ram-content').classList.remove('hidden');
+    document.getElementById('sidebar-panel').classList.add('hidden');
+  } else if (tabName === 'pgp') {
+    document.getElementById('btn-tab-pgp').classList.add('active');
+    document.getElementById('tab-pgp-content').classList.remove('hidden');
     document.getElementById('sidebar-panel').classList.add('hidden');
   }
 }
@@ -1352,7 +1496,11 @@ function formatDuration(secs) {
 }
 
 // Boot UI
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 
 // Case Management Functions
 async function loadCases() {
@@ -1397,4 +1545,26 @@ async function exportCaseReport(caseId, caseNumber) {
     logMessage('ERROR', `Failed to export report for case ${caseNumber}: ` + e);
     alert('Failed to export report: ' + e);
   }
+}
+
+async function loadPgpKeyInfo() {
+  const infoContainer = document.getElementById('pgp-key-info');
+  if (!infoContainer) return;
+  try {
+    const info = await invoke('pgp_get_key_info');
+    renderPgpKeyInfo(info);
+  } catch (e) {
+    infoContainer.innerHTML = `<div style="color: #ff5555;">No PGP keypair generated yet. Click "Generate / Reset Keypair" to initialize.</div>`;
+  }
+}
+
+function renderPgpKeyInfo(info) {
+  const infoContainer = document.getElementById('pgp-key-info');
+  if (!infoContainer) return;
+  infoContainer.innerHTML = `
+    <div style="margin-bottom: 6px;"><strong style="color: var(--color-primary);">Key ID:</strong> <span>${info.key_id}</span></div>
+    <div style="margin-bottom: 6px;"><strong style="color: var(--color-primary);">Fingerprint:</strong> <span style="word-break: break-all;">${info.fingerprint}</span></div>
+    <div style="margin-bottom: 6px;"><strong style="color: var(--color-primary);">User Identity:</strong> <span>${info.user_id}</span></div>
+    <div><strong style="color: var(--color-primary);">Private Key Available:</strong> <span style="color: ${info.has_private_key ? '#10b981' : '#ef4444'}; font-weight: bold;">${info.has_private_key ? 'YES (Active Signing Enabled)' : 'NO'}</span></div>
+  `;
 }

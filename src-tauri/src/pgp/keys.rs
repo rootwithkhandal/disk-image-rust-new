@@ -3,7 +3,6 @@ use openpgp::cert::CertBuilder;
 use openpgp::armor::Writer as ArmorWriter;
 use openpgp::serialize::Serialize;
 use openpgp::parse::Parse;
-use openpgp::cert::Cert;
 use std::path::{Path, PathBuf};
 use std::fs;
 use serde::{Deserialize, Serialize as SerdeSerialize};
@@ -20,9 +19,18 @@ pub struct PgpKeyInfo {
 pub struct PgpKeyManager;
 
 impl PgpKeyManager {
+    pub fn get_default_app_dir() -> PathBuf {
+        std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir())
+            .join("org.openforensic.app")
+    }
+
     /// Returns default paths for storing keypair in the application data directory
-    pub fn get_default_keypair_paths(app_data_dir: &Path) -> (PathBuf, PathBuf) {
-        let pgp_dir = app_data_dir.join("pgp");
+    pub fn get_default_keypair_paths(app_data_dir: Option<&Path>) -> (PathBuf, PathBuf) {
+        let base_dir = app_data_dir.map(PathBuf::from).unwrap_or_else(Self::get_default_app_dir);
+        let pgp_dir = base_dir.join("pgp");
         let _ = fs::create_dir_all(&pgp_dir);
         let priv_path = pgp_dir.join("openforensic_signing_key.asc");
         let pub_path = pgp_dir.join("openforensic_public_key.asc");
@@ -45,6 +53,7 @@ impl PgpKeyManager {
             cert.as_tsk()
                 .serialize(&mut writer)
                 .map_err(|e| format!("Failed to serialize secret key: {}", e))?;
+            writer.finalize().map_err(|e| format!("Failed to finalize secret key armor: {}", e))?;
         }
         let private_key_pem = String::from_utf8(private_armored)
             .map_err(|e| format!("Invalid UTF-8 in secret key armor: {}", e))?;
@@ -58,6 +67,7 @@ impl PgpKeyManager {
             .map_err(|e| format!("Failed to create armored writer for public key: {}", e))?;
             cert.serialize(&mut writer)
                 .map_err(|e| format!("Failed to serialize public key: {}", e))?;
+            writer.finalize().map_err(|e| format!("Failed to finalize public key armor: {}", e))?;
         }
         let public_key_pem = String::from_utf8(public_armored)
             .map_err(|e| format!("Invalid UTF-8 in public key armor: {}", e))?;
@@ -78,7 +88,10 @@ impl PgpKeyManager {
 
     /// Parses an ASCII-armored or binary OpenPGP certificate and extracts metadata
     pub fn inspect_key(pem: &str) -> Result<PgpKeyInfo, String> {
-        let cert = Cert::from_bytes(pem.as_bytes())
+        let cert = openpgp::cert::CertParser::from_bytes(pem.as_bytes())
+            .map_err(|e| format!("Failed to create PGP key parser: {}", e))?
+            .next()
+            .ok_or_else(|| "No certificate found in PGP key data".to_string())?
             .map_err(|e| format!("Failed to parse PGP key: {}", e))?;
 
         let fingerprint = cert.fingerprint().to_hex();
@@ -104,6 +117,7 @@ impl PgpKeyManager {
             .map_err(|e| format!("Failed to create armored writer: {}", e))?;
             cert.serialize(&mut writer)
                 .map_err(|e| format!("Failed to serialize public key: {}", e))?;
+            writer.finalize().map_err(|e| format!("Failed to finalize public key armor: {}", e))?;
         }
         let public_key_pem = String::from_utf8(public_armored)
             .map_err(|e| format!("Invalid UTF-8 in public key armor: {}", e))?;
@@ -130,7 +144,7 @@ impl PgpKeyManager {
     }
 
     /// Loads active keypair from disk, or generates a default one if none exists
-    pub fn load_or_generate_default(app_data_dir: &Path) -> Result<(String, String, PgpKeyInfo), String> {
+    pub fn load_or_generate_default(app_data_dir: Option<&Path>) -> Result<(String, String, PgpKeyInfo), String> {
         let (priv_path, pub_path) = Self::get_default_keypair_paths(app_data_dir);
         if priv_path.exists() && pub_path.exists() {
             if let (Ok(priv_pem), Ok(pub_pem)) = (fs::read_to_string(&priv_path), fs::read_to_string(&pub_path)) {
@@ -143,6 +157,23 @@ impl PgpKeyManager {
         let default_user = "OpenForensic Workstation <investigator@openforensic.local>";
         let (priv_pem, pub_pem, info) = Self::generate_keypair(default_user)?;
         let _ = Self::save_keypair(&priv_path, &pub_path, &priv_pem, &pub_pem);
+        Ok((priv_pem, pub_pem, info))
+    }
+
+    pub fn inspect_default(app_data_dir: Option<&Path>) -> Result<PgpKeyInfo, String> {
+        let (priv_path, _) = Self::get_default_keypair_paths(app_data_dir);
+        if priv_path.exists() {
+            let priv_pem = fs::read_to_string(&priv_path).map_err(|e| e.to_string())?;
+            Self::inspect_key(&priv_pem)
+        } else {
+            Err("No key found".to_string())
+        }
+    }
+
+    pub fn generate_default_with_user(app_data_dir: Option<&Path>, user_id: &str) -> Result<(String, String, PgpKeyInfo), String> {
+        let (priv_path, pub_path) = Self::get_default_keypair_paths(app_data_dir);
+        let (priv_pem, pub_pem, info) = Self::generate_keypair(user_id)?;
+        Self::save_keypair(&priv_path, &pub_path, &priv_pem, &pub_pem)?;
         Ok((priv_pem, pub_pem, info))
     }
 }
