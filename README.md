@@ -40,7 +40,7 @@ graph TD
     subgraph Storage & Memory Sources
         RawDisk[Physical Drive / dev/rdisk / sys/block]
         LiveSys[Live OS / VSS Shadow Copy]
-        RamDump[Physical RAM / winpmem / avml]
+        RamDump[Physical RAM / winpmem / lime / avml]
     end
 
     subgraph Rust Backend Engine
@@ -145,7 +145,7 @@ OpenForensic enforces read-only access at the OS kernel boundary:
 | Platform       | Supported Versions                  | Required Privileges             | Special Notes                                                                                   |
 | :------------- | :---------------------------------- | :------------------------------ | :---------------------------------------------------------------------------------------------- |
 | **🪟 Windows** | Windows 10, Windows 11 (64-bit)     | **Administrator (UAC Uplevel)** | Bundles `winpmem_mini_x64` for RAM capture; requires VSS privileges for locked file extraction. |
-| **🐧 Linux**   | Ubuntu 20.04+, Debian, Arch, Fedora | **Root (`sudo` / `su`)**        | Requires raw block device access (`/dev/sdX`, `/dev/nvme0n1`). Supports `/proc/kcore` & `avml`. |
+| **🐧 Linux**   | Ubuntu 20.04+, Debian, Arch, Fedora | **Root (`sudo` / `su`)**        | Requires raw block device access (`/dev/sdX`, `/dev/nvme0n1`). Bundles **LiME kernel module** (`lime.ko`) for symmetric kernel RAM capture; also supports `avml` & `/proc/kcore`. |
 | **🍎 macOS**   | macOS 11.0 Big Sur or newer         | **Root + Full Disk Access**     | Terminal / app must be granted _Full Disk Access_ under System Settings ➔ Privacy & Security.   |
 
 ### Minimum Hardware

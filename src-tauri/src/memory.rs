@@ -76,8 +76,17 @@ fn find_memory_tool(custom_path: &Option<String>) -> Option<PathBuf> {
         }
     }
 
-    // Check various potential locations for the bundled avml tools
+    // Check various potential locations for the bundled LiME kernel modules and avml tools
     let candidates = [
+        PathBuf::from("lime/lime.ko"),
+        PathBuf::from("src-tauri/lime/lime.ko"),
+        PathBuf::from("../src-tauri/lime/lime.ko"),
+        PathBuf::from("lime/lime-x86_64.ko"),
+        PathBuf::from("src-tauri/lime/lime-x86_64.ko"),
+        PathBuf::from("../src-tauri/lime/lime-x86_64.ko"),
+        PathBuf::from("lime/lime-aarch64.ko"),
+        PathBuf::from("src-tauri/lime/lime-aarch64.ko"),
+        PathBuf::from("../src-tauri/lime/lime-aarch64.ko"),
         PathBuf::from("avml/avml"),
         PathBuf::from("src-tauri/avml/avml"),
         PathBuf::from("../src-tauri/avml/avml"),
@@ -94,6 +103,10 @@ fn find_memory_tool(custom_path: &Option<String>) -> Option<PathBuf> {
     if let Ok(mut exe_path) = std::env::current_exe() {
         exe_path.pop(); // remove exe name
         // Try looking next to the executable
+        let p_lime = exe_path.join("lime").join("lime.ko");
+        if p_lime.exists() { return Some(p_lime); }
+        let p_lime_x64 = exe_path.join("lime").join("lime-x86_64.ko");
+        if p_lime_x64.exists() { return Some(p_lime_x64); }
         let p1 = exe_path.join("avml").join("avml");
         if p1.exists() { return Some(p1); }
     }
@@ -231,6 +244,67 @@ pub async fn acquire_memory(
             hashes,
             dump_path: dest_path.clone(),
             tool_used: "/proc/kcore".to_string(),
+        });
+    }
+
+    // Special case: LiME kernel module (.ko) on Linux
+    #[cfg(target_os = "linux")]
+    let is_lime_module = tool_path.extension().map_or(false, |ext| ext == "ko") || tool_name.starts_with("lime");
+    #[cfg(not(target_os = "linux"))]
+    let is_lime_module = false;
+
+    if is_lime_module {
+        let _ = progress_tx.send(ProgressEvent::Log(
+            format!("[MEMORY] Found LiME kernel module: {} (mirroring WinPmem kernel capture)", tool_name)
+        )).await;
+
+        // Ensure clean state: remove any existing lime module just in case
+        let _ = std::process::Command::new("rmmod").arg("lime").output();
+
+        let insmod_arg = format!("path={} format=raw", dest_path.display());
+        let _ = progress_tx.send(ProgressEvent::Log(
+            format!("[MEMORY] Executing kernel capture: insmod {} \"{}\"", tool_path.display(), insmod_arg)
+        )).await;
+
+        let output = std::process::Command::new("insmod")
+            .arg(&tool_path)
+            .arg(&insmod_arg)
+            .output()
+            .map_err(|e| ForgelensError::Backend(
+                format!("Failed to execute insmod for LiME module '{}': {}", tool_name, e)
+            ))?;
+
+        // Always attempt to clean up / unload LiME kernel module when insmod finishes
+        let _ = std::process::Command::new("rmmod").arg("lime").output();
+
+        let dump_size = std::fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
+        if !output.status.success() && dump_size == 0 {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(ForgelensError::Backend(format!(
+                "LiME kernel module execution failed (insmod):\nstdout: {}\nstderr: {}",
+                stdout.trim(),
+                stderr.trim()
+            )));
+        }
+
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let _ = progress_tx.send(ProgressEvent::Log(
+            format!("[MEMORY] LiME physical memory capture completed: {} bytes in {:.1}s", dump_size, elapsed)
+        )).await;
+
+        // Hash the dump
+        let _ = progress_tx.send(ProgressEvent::Log(
+            "[MEMORY] Computing forensic hashes of memory dump...".to_string()
+        )).await;
+        let hashes = hash_file(dest_path, &config.hash_algorithms, &progress_tx).await?;
+
+        return Ok(MemoryDumpResult {
+            bytes_captured: dump_size,
+            duration_secs: elapsed,
+            hashes,
+            dump_path: dest_path.clone(),
+            tool_used: format!("LiME ({})", tool_name),
         });
     }
 

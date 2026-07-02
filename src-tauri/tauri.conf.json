@@ -25,7 +25,8 @@
         "targets": "all",
         "resources": [
             "winpmem/*",
-            "avml/*"
+            "avml/*",
+            "lime/*"
         ]
     }
 }

@@ -10,7 +10,7 @@ Capturing a memory dump is one of the most critical steps in live incident respo
 
 1. **Navigate to Live Acquisition**: In OpenForensic, switch to the "Live Acquisition" tab.
 2. **Select Output Path**: Specify where you want to save the `.raw` memory image. **Crucial Rule:** Never save the memory dump to the target machine's system drive (e.g., `C:\`). Always write to an external USB forensic drive or network share to minimize evidence destruction.
-3. **Choose the Tool**: OpenForensic can leverage robust kernel-level drivers to read physical memory safely. On Windows, it integrates with tools like `winpmem` or `DumpIt`. On Linux, it often leverages `avml` or `/dev/crash`.
+3. **Choose the Tool**: OpenForensic leverages robust kernel-level drivers to read physical memory safely across operating systems in a symmetric architecture. On Windows, it bundles and invokes **WinPmem** (`winpmem_mini_x64.exe`). On Linux, it bundles and auto-loads a prebuilt **LiME kernel module** (`lime.ko`) via `insmod`, avoiding the truncation and virtual memory limitations of `/proc/kcore` while also supporting `avml` as a user-space fallback.
 4. **Acquire**: Click "Start Live Acquisition." The tool will load a temporary kernel driver to bypass OS protections, read the physical address space, stream it into a container (often a raw `.raw`, `.img`, or `.mem` file), and automatically unload the driver.
 
 ### Using External Tools (e.g., FTK Imager, DumpIt)
