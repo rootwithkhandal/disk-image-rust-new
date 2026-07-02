@@ -1,5 +1,5 @@
 // --------------------------------------------------
-// FORGELENS Disk Imager Frontend Controller
+// OpenForensic Disk Imager Frontend Controller
 // Handles UI states, Tauri IPC, and log rendering
 // --------------------------------------------------
 
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
 } else {
   // Browser simulation mode fallback
   const mockListeners = {};
-  
+
   listen = async (event, callback) => {
     if (!mockListeners[event]) mockListeners[event] = [];
     mockListeners[event].push(callback);
@@ -62,23 +62,23 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
 
   invoke = async (cmd, args) => {
     console.log(`[MOCK IPC] Invoke command: ${cmd}`, args);
-    
+
     if (cmd === 'get_admin_status') {
       return true;
     }
-    
+
     if (cmd === 'scan_devices') {
       await new Promise(r => setTimeout(r, 500));
       return [
-        { 
-          name: 'PhysicalDrive0', 
-          path: '\\\\.\\PhysicalDrive0', 
-          size: 1000204886016, 
-          model: 'Samsung SSD 980 PRO 1TB', 
-          serial: 'S6BCNJ0R123456', 
-          vendor: 'Samsung', 
-          device_type: 'SSD', 
-          is_mounted: false, 
+        {
+          name: 'PhysicalDrive0',
+          path: '\\\\.\\PhysicalDrive0',
+          size: 1000204886016,
+          model: 'Samsung SSD 980 PRO 1TB',
+          serial: 'S6BCNJ0R123456',
+          vendor: 'Samsung',
+          device_type: 'SSD',
+          is_mounted: false,
           mount_points: [],
           partitions: [
             { name: 'Partition 1 (System)', size: 524288000, fs_type: 'FAT32' },
@@ -86,15 +86,15 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
             { name: 'Partition 3 (Recovery)', size: 49767086016, fs_type: 'NTFS (Hidden)' }
           ]
         },
-        { 
-          name: 'PhysicalDrive1', 
-          path: '\\\\.\\PhysicalDrive1', 
-          size: 32017047552, 
-          model: 'Crucial USB Flash Drive', 
-          serial: '070324888123', 
-          vendor: 'Crucial', 
-          device_type: 'USB', 
-          is_mounted: false, 
+        {
+          name: 'PhysicalDrive1',
+          path: '\\\\.\\PhysicalDrive1',
+          size: 32017047552,
+          model: 'Crucial USB Flash Drive',
+          serial: '070324888123',
+          vendor: 'Crucial',
+          device_type: 'USB',
+          is_mounted: false,
           mount_points: [],
           partitions: [
             { name: 'Partition 1 (USB Storage)', size: 32015000000, fs_type: 'exFAT' }
@@ -102,19 +102,19 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
         }
       ];
     }
-    
+
     if (cmd === 'browse_folder') {
       return 'C:\\Forensics\\Evidence_Source';
     }
-    
+
     if (cmd === 'browse_file') {
       return `C:\\Forensics\\Acquisitions\\case_evidence.${args.ext || 'dd'}`;
     }
-    
+
     if (cmd === 'check_checkpoint') {
       return false;
     }
-    
+
     if (cmd === 'cancel_acquisition') {
       if (mockInterval) {
         clearInterval(mockInterval);
@@ -124,7 +124,7 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
       }
       return;
     }
-    
+
     if (cmd === 'start_triage') {
       const destPath = args.destPath;
       triggerMockEvent('acquisition-event', { type: 'Log', data: `[SYSTEM] Starting simulated rapid system triage to ${destPath}` });
@@ -158,34 +158,34 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
       await new Promise(r => setTimeout(r, 800));
       return true;
     }
-    
+
     if (cmd === 'start_acquisition') {
       const config = args.configInput;
       let bytes_read = 0;
       const total_size = config.imaging_mode === 'Physical' ? 32017047552 : 54000000;
       const speed = 125000000; // 125 MB/s
       let bad_sectors = 0;
-      
+
       triggerMockEvent('acquisition-event', { type: 'Log', data: `[ACQUISITION] Starting simulated physical imaging of ${config.source_path}` });
-      
+
       mockInterval = setInterval(() => {
         bytes_read += speed * 0.25;
         if (Math.random() < 0.02) {
           bad_sectors += 1;
           triggerMockEvent('acquisition-event', { type: 'Log', data: `[WARNING] Bad sector encountered at offset ${bytes_read} bytes` });
         }
-        
+
         if (bytes_read >= total_size) {
           bytes_read = total_size;
           clearInterval(mockInterval);
           triggerMockEvent('acquisition-event', { type: 'Progress', data: { bytes_read, total_size, speed_bps: speed, bad_sectors } });
-          triggerMockEvent('acquisition-event', { 
-            type: 'Finished', 
-            data: { 
-              bytes_read, 
-              bad_sectors, 
-              hashes: { 'MD5': '9e107d9d372bb6826bd81d3542a419d6', 'SHA256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' } 
-            } 
+          triggerMockEvent('acquisition-event', {
+            type: 'Finished',
+            data: {
+              bytes_read,
+              bad_sectors,
+              hashes: { 'MD5': '9e107d9d372bb6826bd81d3542a419d6', 'SHA256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+            }
           });
         } else {
           triggerMockEvent('acquisition-event', { type: 'Progress', data: { bytes_read, total_size, speed_bps: speed, bad_sectors } });
@@ -200,11 +200,11 @@ if (typeof window !== 'undefined' && (window.__TAURI__ || window.__TAURI_INTERNA
         { letter: 'D:', label: 'Data', fs_type: 'exFAT', total_size: 2000204886016, free_space: 1500000000000 }
       ];
     }
-    
+
     if (cmd === 'start_live_acquisition') {
       const config = args.configInput;
       triggerMockEvent('acquisition-event', { type: 'Log', data: `[LIVE] Starting simulated live acquisition of volume ${config.volume} to ${config.dest_path}` });
-      
+
       let progress = 0;
       mockInterval = setInterval(() => {
         progress += 20;
@@ -255,10 +255,10 @@ const elements = {
   physicalContainer: document.getElementById('physical-container'),
   logicalContainer: document.getElementById('logical-container'),
   deviceList: document.getElementById('device-list'),
-  
+
   logicalSourceInput: document.getElementById('logical-source-input'),
   btnBrowseSource: document.getElementById('btn-browse-source'),
-  
+
   inputEvidenceId: document.getElementById('input-evidence-id'),
   inputCaseNumber: document.getElementById('input-case-number'),
   inputExaminer: document.getElementById('input-examiner'),
@@ -278,23 +278,23 @@ const elements = {
   btnBrowseYara: document.getElementById('btn-browse-yara'),
   checkSparse: document.getElementById('check-sparse'),
   checkDigitalSignature: document.getElementById('check-digital-signature'),
-  
+
   hashMd5: document.getElementById('hash-md5'),
   hashSha1: document.getElementById('hash-sha1'),
   hashSha256: document.getElementById('hash-sha256'),
   hashSha512: document.getElementById('hash-sha512'),
-  
+
   consoleLogs: document.getElementById('console-logs'),
   btnClearLog: document.getElementById('btn-clear-log'),
   btnExportLog: document.getElementById('btn-export-log'),
-  
+
   monitorIdle: document.getElementById('monitor-idle'),
   monitorActive: document.getElementById('monitor-active'),
   idleStatusText: document.getElementById('idle-status-text'),
   btnStartAcquisition: document.getElementById('btn-start-acquisition'),
   btnResumeAcquisition: document.getElementById('btn-resume-acquisition'),
   btnCancelAcquisition: document.getElementById('btn-cancel-acquisition'),
-  
+
   txtActiveJobDesc: document.getElementById('txt-active-job-desc'),
   txtStatSpeed: document.getElementById('txt-stat-speed'),
   txtStatEta: document.getElementById('txt-stat-eta'),
@@ -333,14 +333,14 @@ const elements = {
 
 // Initialize Application
 async function init() {
-  logMessage('SYSTEM', 'Forgelens Disk Imager UI loaded.');
-  
+  logMessage('SYSTEM', 'OpenForensic Disk Imager UI loaded.');
+
   // 0. Initialize Theme
   initTheme();
-  
+
   // 1. Start Clock Updater
   startClock();
-  
+
   // 2. Fetch Admin privileges
   try {
     const adminPromise = invoke('get_admin_status');
@@ -363,7 +363,7 @@ async function init() {
 }
 
 function initTheme() {
-  const savedTheme = localStorage.getItem('forgelens-theme');
+  const savedTheme = localStorage.getItem('OpenForensic-theme');
   if (savedTheme === 'light') {
     document.documentElement.classList.add('light-theme');
     elements.btnThemeToggle.textContent = '☾';
@@ -378,11 +378,11 @@ function initTheme() {
 function toggleTheme() {
   const isLight = document.documentElement.classList.toggle('light-theme');
   if (isLight) {
-    localStorage.setItem('forgelens-theme', 'light');
+    localStorage.setItem('OpenForensic-theme', 'light');
     elements.btnThemeToggle.textContent = '☾';
     elements.btnThemeToggle.title = 'Switch to Dark Mode';
   } else {
-    localStorage.setItem('forgelens-theme', 'dark');
+    localStorage.setItem('OpenForensic-theme', 'dark');
     elements.btnThemeToggle.textContent = '☀';
     elements.btnThemeToggle.title = 'Switch to Light Mode';
   }
@@ -520,7 +520,7 @@ function setupEventListeners() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `forgelens_console_log_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    a.download = `OpenForensic_console_log_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -598,7 +598,7 @@ function setupEventListeners() {
       }
       const table = elements.triageTableSelect.value;
       elements.triageTableBody.innerHTML = '<tr><td style="padding: 12px; color: var(--text-muted);">Querying database...</td></tr>';
-      
+
       try {
         const resultJson = await invoke('query_triage_db', { dbPath, tableName: table });
         const data = JSON.parse(resultJson);
@@ -704,7 +704,7 @@ function setupEventListeners() {
       toggleUIJobActive(true);
       resetStats();
       logMessage('SYSTEM', 'Initiating rapid triage collection...');
-      
+
       await invoke('start_triage', {
         destPath,
         collectRegistry: collect_registry,
@@ -713,7 +713,7 @@ function setupEventListeners() {
         collectEventlogs: collect_eventlogs,
         siemConfig: siemConfig.enabled ? siemConfig : null
       });
-      
+
       // Auto-load DB path for analysis workbench if it succeeds
       if (elements.triageDbPath) {
          elements.triageDbPath.value = destPath + "\\triage.db";
@@ -734,7 +734,7 @@ function setupEventListeners() {
       elements.triageTableBody.innerHTML = '<tr><td style="padding: 12px; color: var(--text-muted);">No records found in this table.</td></tr>';
       return;
     }
-    
+
     // Build Headers from first row keys
     const keys = Object.keys(data[0]);
     let theadHtml = '';
@@ -742,7 +742,7 @@ function setupEventListeners() {
       theadHtml += `<th style="padding: 12px; font-weight: 600; text-transform: capitalize;">${key.replace(/_/g, ' ')}</th>`;
     });
     elements.triageTableHead.innerHTML = theadHtml;
-    
+
     // Build Rows
     let tbodyHtml = '';
     data.forEach(row => {
@@ -801,7 +801,7 @@ function setupEventListeners() {
     e.preventDefault();
     const volume = document.getElementById('live-volume-select').value;
     const destPath = document.getElementById('live-dest-path').value;
-    
+
     if (!volume || !destPath) {
       alert('Please select both a system volume and a destination folder.');
       return;
@@ -871,22 +871,22 @@ function setupEventListeners() {
       e.preventDefault();
       const imagePath = elements.timelineImagePath.value;
       const destPath = elements.timelineDestPath.value;
-      
+
       if (!imagePath || !destPath) {
         alert('Please select both an image file and a destination directory.');
         return;
       }
-      
+
       try {
         logMessage('SYSTEM', 'Starting timeline generation... This may take a while.');
         elements.btnStartTimeline.disabled = true;
         elements.btnStartTimeline.textContent = 'Generating...';
-        
+
         const result = await invoke('generate_image_timeline', {
           imagePath: imagePath,
           outputDir: destPath
         });
-        
+
         logMessage('SYSTEM', result);
         alert(result);
       } catch (err) {
@@ -933,12 +933,12 @@ function setupEventListeners() {
       e.preventDefault();
       const imagePath = elements.ramImagePath.value;
       const volPath = elements.ramVolPath.value;
-      
+
       if (!imagePath || !volPath) {
         alert('Please select both a memory dump file and the Volatility 3 executable/script path.');
         return;
       }
-      
+
       const config = {
         image_path: imagePath,
         vol_path: volPath,
@@ -950,12 +950,12 @@ function setupEventListeners() {
         mb_key: '',
         abuseip_key: elements.ramKeyAbuseIp ? elements.ramKeyAbuseIp.value : ''
       };
-      
+
       try {
         logMessage('VOLATILITY', `Starting Volatility 3 analysis [Profile: ${config.profile}]...`);
         elements.btnStartRamAnalysis.disabled = true;
         elements.btnStartRamAnalysis.textContent = 'Running Analysis...';
-        
+
         await invoke('start_volatility_analysis', { config });
       } catch (err) {
         logMessage('ERROR', 'Failed to start Volatility analysis: ' + err);
@@ -1099,7 +1099,7 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
   document.querySelectorAll('.tab-content').forEach(panel => panel.classList.add('hidden'));
-  
+
   if (tabName === 'imaging') {
     document.getElementById('btn-tab-imaging').classList.add('active');
     document.getElementById('tab-imaging-content').classList.remove('hidden');
@@ -1138,7 +1138,7 @@ function switchTab(tabName) {
 
 function setImagingMode(mode) {
   if (state.activeJob) return;
-  
+
   state.imagingMode = mode;
   if (mode === 'Physical') {
     elements.modePhysical.classList.add('active');
@@ -1176,24 +1176,24 @@ async function doRescan() {
 
   elements.deviceList.innerHTML = '<div class="info-message">Scanning system block devices...</div>';
   logMessage('SYSTEM', 'Scanning block devices...');
-  
+
   try {
     const devs = await invoke('scan_devices');
     state.devices = devs;
     elements.deviceList.innerHTML = '';
-    
+
     if (devs.length === 0) {
       elements.deviceList.innerHTML = '<div class="info-message">No physical devices detected. Run in Elevated Mode.</div>';
       return;
     }
-    
+
     devs.forEach((dev, idx) => {
       const card = document.createElement('div');
       card.className = 'device-card';
       if (state.selectedDeviceIndex === idx) {
         card.classList.add('selected');
       }
-      
+
       let partitionsHtml = '';
       if (dev.partitions && dev.partitions.length > 0) {
         partitionsHtml = `
@@ -1224,17 +1224,17 @@ async function doRescan() {
         </div>
         ${partitionsHtml}
       `;
-      
+
       card.addEventListener('click', () => {
         if (state.activeJob) return;
         state.selectedDeviceIndex = idx;
-        
+
         // Remove selection from others
         document.querySelectorAll('.device-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
-        
+
         logMessage('SYSTEM', `Selected device: ${dev.path} (${formatBytes(dev.size)})`);
-        
+
         // Populate default destination path
         if (!elements.inputDestPath.value) {
           const cleanName = dev.name.replace(/\\\\.\\/g, '').replace(/[\/\\?%*:|"<>\s]/g, '_');
@@ -1242,7 +1242,7 @@ async function doRescan() {
           checkCheckpointExists(`C:\\${cleanName}.dd`);
         }
       });
-      
+
       elements.deviceList.appendChild(card);
     });
 
@@ -1337,10 +1337,10 @@ async function handleStartAcquisition(isResume) {
   try {
     state.activeJob = true;
     toggleUIJobActive(true);
-    
+
     // Clear display progress stats
     resetStats();
-    
+
     logMessage('SYSTEM', 'Initiating acquisition job...');
     await invoke('start_acquisition', { configInput: config });
   } catch (e) {
@@ -1408,21 +1408,21 @@ function handleBackendEvent(event) {
     logMessage('ACQUISITION', data);
   } else if (type === 'Progress') {
     const { bytes_read, total_size, speed_bps, bad_sectors } = data;
-    
+
     // Percentage
     const pct = total_size > 0 ? (bytes_read / total_size * 100) : 0;
     elements.txtStatPercent.textContent = pct.toFixed(1) + '%';
     elements.progressBarFill.style.width = pct.toFixed(1) + '%';
-    
+
     // Speed
     const speedMb = speed_bps / 1000000;
     elements.txtStatSpeed.textContent = speedMb.toFixed(2) + ' MB/s';
-    
+
     // ETA
     const remainingBytes = total_size - bytes_read;
     const etaSecs = speed_bps > 0 ? Math.ceil(remainingBytes / speed_bps) : 0;
     elements.txtStatEta.textContent = formatDuration(etaSecs);
-    
+
     // Bad Sectors
     elements.txtStatBad.textContent = bad_sectors.toString();
     if (bad_sectors > 0) {
@@ -1438,11 +1438,11 @@ function handleBackendEvent(event) {
     logMessage('SYSTEM', '=== ACQUISITION COMPLETED SUCCESSFULLY ===');
     logMessage('SYSTEM', `Total Imaged Size: ${formatBytes(bytes_read)}`);
     logMessage('SYSTEM', `Bad Sectors Discovered: ${bad_sectors}`);
-    
+
     for (const algo in hashes) {
       logMessage('ACQUISITION', `${algo}: ${hashes[algo]}`);
     }
-    
+
     alert('Acquisition Job Completed and Verified!');
     state.activeJob = false;
     toggleUIJobActive(false);
@@ -1463,12 +1463,12 @@ function handleBackendEvent(event) {
 function logMessage(level, text) {
   const entry = document.createElement('div');
   entry.className = `log-entry log-${level.toLowerCase()}`;
-  
+
   const timestamp = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
   entry.textContent = `[${timestamp} IST] [${level}] ${text}`;
-  
+
   elements.consoleLogs.appendChild(entry);
-  
+
   // Auto scroll to bottom
   elements.consoleLogs.scrollTop = elements.consoleLogs.scrollHeight;
 }
@@ -1487,7 +1487,7 @@ function formatDuration(secs) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;
-  
+
   let str = '';
   if (h > 0) str += `${h}h `;
   if (m > 0 || h > 0) str += `${m}m `;
@@ -1512,10 +1512,10 @@ async function loadCases() {
       container.innerHTML = '<div class="info-message">No cases found in the database.</div>';
       return;
     }
-    
+
     let html = '<table style="width: 100%; border-collapse: collapse; color: var(--text-main);">';
     html += '<tr style="border-bottom: 1px solid var(--color-border);"><th style="text-align: left; padding: 8px;">Case Number</th><th style="text-align: left; padding: 8px;">Examiner</th><th style="text-align: left; padding: 8px;">Created At</th><th style="text-align: right; padding: 8px;">Actions</th></tr>';
-    
+
     for (const c of cases) {
       html += `<tr style="border-bottom: 1px solid var(--color-bg);">
         <td style="padding: 8px; font-family: 'JetBrains Mono', monospace;">${c.case_number}</td>

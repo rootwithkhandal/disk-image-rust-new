@@ -1,4 +1,4 @@
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use super::{DeviceBackend, DeviceInfo, RawDevice};
 use std::os::unix::io::AsRawFd;
 
@@ -50,7 +50,7 @@ impl DeviceBackend for MacosBackend {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .open(path)
-            .map_err(|e| ForgelensError::Backend(format!("Failed to open macos device {}: {}", path, e)))?;
+            .map_err(|e| OpenForensicError::Backend(format!("Failed to open macos device {}: {}", path, e)))?;
 
         let fd = file.as_raw_fd();
         let mut sector_size: u32 = 0;

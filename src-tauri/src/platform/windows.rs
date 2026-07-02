@@ -1,4 +1,4 @@
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use super::{DeviceBackend, DeviceInfo, RawDevice};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::GENERIC_READ;
@@ -96,7 +96,7 @@ impl DeviceBackend for WindowsBackend {
 
             if io_ok.is_ok() {
                 let desc = unsafe { &*(buffer.as_ptr() as *const STORAGE_DEVICE_DESCRIPTOR) };
-                
+
                 if desc.ProductIdOffset > 0 && desc.ProductIdOffset < bytes_returned {
                     model = Self::parse_null_str(&buffer, desc.ProductIdOffset as usize);
                 }
@@ -163,7 +163,7 @@ impl DeviceBackend for WindowsBackend {
         };
 
         if handle.is_err() {
-            return Err(ForgelensError::Backend(format!(
+            return Err(OpenForensicError::Backend(format!(
                 "Failed to open device {}: {}",
                 path,
                 std::io::Error::last_os_error()
@@ -217,7 +217,7 @@ impl DeviceBackend for WindowsBackend {
         };
 
         if handle.is_err() {
-            return Err(ForgelensError::Backend(format!(
+            return Err(OpenForensicError::Backend(format!(
                 "Failed to open device {} for write-blocking: {}",
                 device.path,
                 std::io::Error::last_os_error()
@@ -266,7 +266,7 @@ impl DeviceBackend for WindowsBackend {
         }
 
         if res.is_err() {
-            return Err(ForgelensError::Backend(format!(
+            return Err(OpenForensicError::Backend(format!(
                 "Failed to set disk {} to Read-Only: {}",
                 device.path,
                 std::io::Error::last_os_error()

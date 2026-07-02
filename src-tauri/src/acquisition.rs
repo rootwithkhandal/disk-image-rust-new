@@ -72,7 +72,7 @@ pub async fn acquire(
     let hash_algorithms = config.hash_algorithms.clone();
     let (hash_tx, mut hash_rx) = tokio::sync::mpsc::channel::<std::sync::Arc<Vec<u8>>>(4);
     let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<std::sync::Arc<Vec<u8>>>(4);
-    
+
     let hashing_task = tokio::task::spawn_blocking(move || {
         let mut hashers = MultiHasher::new(&hash_algorithms);
         while let Some(chunk) = hash_rx.blocking_recv() {
@@ -209,17 +209,17 @@ pub async fn acquire(
                     if dest.bytes_written_part() >= n {
                         let current_path = dest.current_part_path();
                         let offset = dest.bytes_written_part() - n;
-                        
+
                         let mut file = std::fs::File::open(&current_path)?;
                         use std::io::{Read, Seek, SeekFrom};
                         file.seek(SeekFrom::Start(offset))?;
                         let mut read_buf = vec![0u8; chunk.len()];
                         file.read_exact(&mut read_buf)?;
-                        
+
                         if read_buf != chunk.as_slice() {
                             let msg = format!("[ERROR] Read verification failed at offset {} of {}", offset, current_path.display());
                             let _ = writer_progress_tx.blocking_send(ProgressEvent::Log(msg.clone()));
-                            return Err(crate::error::ForgelensError::Io(std::io::Error::new(
+                            return Err(crate::error::OpenForensicError::Io(std::io::Error::new(
                                 std::io::ErrorKind::InvalidData,
                                 "Written data mismatch on verification read-back",
                             )));
@@ -264,7 +264,7 @@ pub async fn acquire(
         }
 
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
 
         let read_success;
@@ -288,7 +288,7 @@ pub async fn acquire(
                 let _ = progress_tx.send(ProgressEvent::Log(format!(
                     "[WARNING] Block read failed at offset {}. Dropped down to sector isolation.", bytes_read
                 ))).await;
-                
+
                 let _ = source.seek_to(bytes_read);
                 // Begin sector-level isolation
                 let mut sector_offset = 0;
@@ -333,7 +333,7 @@ pub async fn acquire(
                     }
                     sector_offset += sector_size;
                 }
-                
+
                 n = current_block_size;
                 read_success = true;
             }
@@ -343,32 +343,32 @@ pub async fn acquire(
             if n == 0 {
                 break; // EOF
             }
-            
+
             let chunk = std::sync::Arc::new(active_slice[..n].to_vec());
 
             // Keyword scanning (offloaded)
             if !config.keywords.is_empty() {
                 if let Err(_) = kw_tx.send((bytes_read, chunk.clone())).await {
-                    return Err(crate::error::ForgelensError::Backend("Keyword scanning task died unexpectedly".to_string()));
+                    return Err(crate::error::OpenForensicError::Backend("Keyword scanning task died unexpectedly".to_string()));
                 }
             }
-            
+
             if let Some(ref y_tx) = yara_tx_opt {
                 if let Err(_) = y_tx.send((bytes_read, chunk.clone())).await {
-                    return Err(crate::error::ForgelensError::Backend("YARA scanning task died unexpectedly".to_string()));
+                    return Err(crate::error::OpenForensicError::Backend("YARA scanning task died unexpectedly".to_string()));
                 }
             }
             if let Some(ref p_tx) = plugin_tx_opt {
                 if let Err(_) = p_tx.send((bytes_read, chunk.clone())).await {
-                    return Err(crate::error::ForgelensError::Backend("Plugin execution task died unexpectedly".to_string()));
+                    return Err(crate::error::OpenForensicError::Backend("Plugin execution task died unexpectedly".to_string()));
                 }
             }
 
             if let Err(_) = hash_tx.send(chunk.clone()).await {
-                return Err(crate::error::ForgelensError::Backend("Hashing task died unexpectedly".to_string()));
+                return Err(crate::error::OpenForensicError::Backend("Hashing task died unexpectedly".to_string()));
             }
             if let Err(_) = write_tx.send(chunk).await {
-                return Err(crate::error::ForgelensError::Backend("Writing task died unexpectedly".to_string()));
+                return Err(crate::error::OpenForensicError::Backend("Writing task died unexpectedly".to_string()));
             }
 
             bytes_read += n as u64;
@@ -378,7 +378,7 @@ pub async fn acquire(
         if now.duration_since(last_progress_time).as_millis() >= 250 || bytes_read.saturating_sub(last_bytes_read) >= 5_000_000 {
             let elapsed = now.duration_since(start_time).as_secs_f64();
             let speed_bps = if elapsed > 0.0 { bytes_read as f64 / elapsed } else { 0.0 };
-            
+
             let _ = progress_tx.send(ProgressEvent::Progress {
                 bytes_read,
                 total_size,
@@ -406,11 +406,11 @@ pub async fn acquire(
     drop(plugin_tx_opt); // close plugin task channel
 
     let final_hashes = hashing_task.await.map_err(|e| {
-        crate::error::ForgelensError::Backend(format!("Hashing task panic: {}", e))
+        crate::error::OpenForensicError::Backend(format!("Hashing task panic: {}", e))
     })?;
 
     let final_dest_path = writing_task.await.map_err(|e| {
-        crate::error::ForgelensError::Backend(format!("Writing task panic: {}", e))
+        crate::error::OpenForensicError::Backend(format!("Writing task panic: {}", e))
     })??;
 
     let final_kw_hits = kw_task.await.unwrap_or_default();
@@ -497,17 +497,17 @@ pub async fn compute_pre_hash(
     let mut raw_buf = vec![0u8; block_size + 4096];
     let ptr = raw_buf.as_ptr() as usize;
     let align_offset = (4096 - (ptr % 4096)) % 4096;
-    
+
     let start_time = Instant::now();
     let mut last_progress_time = Instant::now();
-    
+
     loop {
         if bytes_hashed >= size {
             break;
         }
 
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
 
         let remaining = size - bytes_hashed;
@@ -516,7 +516,7 @@ pub async fn compute_pre_hash(
         } else {
             block_size
         };
-        
+
         let active_slice = &mut raw_buf[align_offset .. align_offset + current_block];
         match source_dev.read_block(active_slice) {
             Ok(0) => break,
@@ -531,7 +531,7 @@ pub async fn compute_pre_hash(
                 let _ = source_dev.seek_forward(current_block as u64);
             }
         }
-        
+
         let now = Instant::now();
         if now.duration_since(last_progress_time).as_millis() >= 500 {
             let elapsed = now.duration_since(start_time).as_secs_f64();
@@ -545,7 +545,7 @@ pub async fn compute_pre_hash(
             last_progress_time = now;
         }
     }
-    
+
     Ok(hashers.finalize())
 }
 
@@ -557,12 +557,12 @@ pub async fn acquire_logical(
 ) -> Result<AcquisitionResult> {
     use std::fs::File;
     use std::io::{Read, Write};
-    
+
     let mut bytes_read = 0u64;
     let mut files_copied = 0u64;
-    
+
     std::fs::create_dir_all(dest_dir)?;
-    
+
     let manifest_path = dest_dir.join("logical_manifest.txt");
     let mut manifest = File::create(&manifest_path)?;
     writeln!(manifest, "=== OPENFORENSIC LOGICAL ACQUISITION MANIFEST ===")?;
@@ -571,13 +571,13 @@ pub async fn acquire_logical(
     writeln!(manifest, "Examiner:         {}", config.examiner)?;
     writeln!(manifest, "Date:             {}", chrono::Utc::now().to_rfc2822())?;
     writeln!(manifest, "--------------------------------------------------")?;
-    
+
     let mut stack = vec![source_dir.to_path_buf()];
     let mut all_files = Vec::new();
-    
+
     while let Some(dir) = stack.pop() {
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -590,48 +590,48 @@ pub async fn acquire_logical(
             }
         }
     }
-    
+
     // Sort files by relative path to ensure deterministic processing order
     all_files.sort_by(|a, b| {
         let rel_a = a.strip_prefix(source_dir).unwrap_or(a);
         let rel_b = b.strip_prefix(source_dir).unwrap_or(b);
         rel_a.cmp(rel_b)
     });
-    
+
     let total_size: u64 = all_files.iter().map(|f| f.metadata().map(|m| m.len()).unwrap_or(0)).sum();
     let start_time = Instant::now();
     let mut last_progress_time = Instant::now();
-    
+
     let mut global_hashers = MultiHasher::new(&config.hash_algorithms);
-    
+
     for file_path in all_files {
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
-        
+
         let relative_path = file_path.strip_prefix(source_dir).unwrap_or(&file_path);
         let target_path = dest_dir.join(relative_path);
-        
+
         if let Some(parent) = target_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
+
         if let Ok(mut src_file) = File::open(&file_path) {
             if let Ok(mut dst_file) = File::create(&target_path) {
                 let mut hashers = MultiHasher::new(&config.hash_algorithms);
                 let mut buf = vec![0u8; 64 * 1024];
-                
+
                 while let Ok(n) = src_file.read(&mut buf) {
                     if n == 0 { break; }
                     if progress_tx.is_closed() {
-                        return Err(crate::error::ForgelensError::Cancelled);
+                        return Err(crate::error::OpenForensicError::Cancelled);
                     }
                     let chunk = std::sync::Arc::new(buf[..n].to_vec());
                     hashers.update(chunk.clone());
                     global_hashers.update(chunk);
                     dst_file.write_all(&buf[..n])?;
                     bytes_read += n as u64;
-                    
+
                     let now = Instant::now();
                     if now.duration_since(last_progress_time).as_millis() >= 250 {
                         let elapsed = now.duration_since(start_time).as_secs_f64();
@@ -645,7 +645,7 @@ pub async fn acquire_logical(
                         last_progress_time = now;
                     }
                 }
-                
+
                 let hashes = hashers.finalize();
 
                 dst_file.flush()?;
@@ -683,7 +683,7 @@ pub async fn acquire_logical(
             }
         }
     }
-    
+
     writeln!(manifest, "--------------------------------------------------")?;
     writeln!(manifest, "Total Files Copied: {}", files_copied)?;
     writeln!(manifest, "Total Size:         {} bytes", bytes_read)?;
@@ -696,9 +696,9 @@ pub async fn acquire_logical(
             let _ = progress_tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
         }
     }
-    
+
     let global_hashes = global_hashers.finalize();
-    
+
     let result = AcquisitionResult {
         bytes_read,
         bad_sectors: 0,
@@ -707,7 +707,7 @@ pub async fn acquire_logical(
         yara_hits: Vec::new(),
         plugin_results: HashMap::new(),
     };
-    
+
     Ok(result)
 }
 
@@ -790,7 +790,7 @@ pub async fn acquire_triage(
     // 1. Collect Volatile States (Processes, Connections, Modules)
     if collect_volatile {
         let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Gathering live volatile system state...".to_string())).await;
-        
+
         // Save Processes
         let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Extracting running processes...".to_string())).await;
         let mut sys = sysinfo::System::new_all();
@@ -955,7 +955,7 @@ pub async fn acquire_triage(
         if cfg!(target_os = "windows") {
             let _ = run_command_to_file("wevtutil", &["epl", "System", &logs_dir.join("System.evtx").to_string_lossy()], &logs_dir.join("system_logs_export_log.txt"), &progress_tx).await;
             let _ = run_command_to_file("wevtutil", &["epl", "Security", &logs_dir.join("Security.evtx").to_string_lossy()], &logs_dir.join("security_logs_export_log.txt"), &progress_tx).await;
-            
+
             let _ = progress_tx.send(ProgressEvent::Log("[TRIAGE] Parsing Event Logs into Triage Database...".to_string())).await;
             if let Some(ref db) = triage_db {
                 let script = "Get-WinEvent -LogName System -MaxEvents 500 -ErrorAction SilentlyContinue | Select-Object TimeCreated, Id, ProviderName, Message | ConvertTo-Json -Compress";
@@ -968,7 +968,7 @@ pub async fn acquire_triage(
                                 let provider = ev.get("ProviderName").and_then(|v| v.as_str()).unwrap_or("");
                                 let msg = ev.get("Message").and_then(|v| v.as_str()).unwrap_or("");
                                 let time = ev.get("TimeCreated").and_then(|t| t.get("value")).and_then(|v| v.as_str()).unwrap_or(ev.get("TimeCreated").and_then(|v| v.as_str()).unwrap_or(""));
-                                
+
                                 let _ = db.execute(
                                     "INSERT INTO event_logs (log_name, event_id, source, time_created, message) VALUES (?1, ?2, ?3, ?4, ?5)",
                                     rusqlite::params!["System", id, provider, time, msg],
@@ -1000,7 +1000,7 @@ pub async fn acquire_triage(
     // Generate Triage Report Summary
     if let Ok(mut file) = File::create(dest_dir.join("triage_summary.txt")) {
         writeln!(file, "==================================================")?;
-        writeln!(file, "        FORGELENS FORENSIC TRIAGE REPORT          ")?;
+        writeln!(file, "        OpenForensic FORENSIC TRIAGE REPORT          ")?;
         writeln!(file, "==================================================")?;
         writeln!(file, "Triage Location: {}", dest_dir.display())?;
         writeln!(file, "Execution Date:  {}", chrono::Utc::now().to_rfc2822())?;
@@ -1033,7 +1033,7 @@ pub async fn acquire_triage(
             }
         }
     }
-    
+
     let _ = progress_tx.send(ProgressEvent::Finished {
         bytes_read: 0,
         bad_sectors: 0,
@@ -1057,48 +1057,48 @@ pub async fn compute_file_hash(
         let mut file = std::fs::File::open(&path_clone)?;
         let metadata = file.metadata()?;
         let total_size = metadata.len();
-        
+
         let mut bytes_hashed: u64 = 0;
         let mut buffer = vec![0u8; 1024 * 1024 * 4]; // 4MB buffer for fast sequential reads
-        
+
         let start_time = Instant::now();
         let mut last_progress_time = Instant::now();
-        
+
         use std::io::Read;
-        
+
         loop {
             if tx.is_closed() {
-                return Err(crate::error::ForgelensError::Cancelled);
+                return Err(crate::error::OpenForensicError::Cancelled);
             }
-            
+
             let n = file.read(&mut buffer)?;
             if n == 0 {
                 break; // EOF
             }
-            
+
             hashers.update(std::sync::Arc::new(buffer[..n].to_vec()));
             bytes_hashed += n as u64;
-            
+
             let now = Instant::now();
             if now.duration_since(last_progress_time).as_millis() >= 250 {
                 let elapsed = now.duration_since(start_time).as_secs_f64();
                 let speed_bps = if elapsed > 0.0 { bytes_hashed as f64 / elapsed } else { 0.0 };
-                
+
                 let _ = tx.blocking_send(ProgressEvent::Progress {
                     bytes_read: bytes_hashed,
                     total_size,
                     speed_bps,
                     bad_sectors: 0,
                 });
-                
+
                 last_progress_time = now;
             }
         }
-        
+
         Ok(hashers.finalize())
     })
     .await
-    .map_err(|e| crate::error::ForgelensError::Backend(e.to_string()))?
+    .map_err(|e| crate::error::OpenForensicError::Backend(e.to_string()))?
 }
 
 pub async fn compute_logical_hash(
@@ -1108,10 +1108,10 @@ pub async fn compute_logical_hash(
 ) -> Result<HashMap<HashAlgorithm, String>> {
     let mut stack = vec![dir_path.to_path_buf()];
     let mut all_files = Vec::new();
-    
+
     while let Some(dir) = stack.pop() {
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -1124,7 +1124,7 @@ pub async fn compute_logical_hash(
             }
         }
     }
-    
+
     all_files.sort_by(|a, b| {
         let rel_a = a.strip_prefix(dir_path).unwrap_or(a);
         let rel_b = b.strip_prefix(dir_path).unwrap_or(b);
@@ -1140,7 +1140,7 @@ pub async fn compute_logical_hash(
 
     for file_path in all_files {
         if progress_tx.is_closed() {
-            return Err(crate::error::ForgelensError::Cancelled);
+            return Err(crate::error::OpenForensicError::Cancelled);
         }
         if let Ok(mut src_file) = std::fs::File::open(&file_path) {
             use std::io::Read;
@@ -1278,4 +1278,3 @@ pub async fn acquire_live(
 
     Ok(())
 }
-

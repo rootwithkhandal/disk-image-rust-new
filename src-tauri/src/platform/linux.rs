@@ -1,4 +1,4 @@
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use super::{DeviceBackend, DeviceInfo, RawDevice};
 use std::fs::{self, File};
 use std::os::unix::fs::OpenOptionsExt;
@@ -43,7 +43,7 @@ impl DeviceBackend for LinuxBackend {
                 let rotational = fs::read_to_string(format!("{}/queue/rotational", sys_path))
                     .map(|s| s.trim().to_string())
                     .unwrap_or_default();
-                
+
                 let device_type = if rotational == "0" {
                     if dev_name.starts_with("nvme") {
                         "NVMe SSD".to_string()
@@ -67,7 +67,7 @@ impl DeviceBackend for LinuxBackend {
                 }
 
                 let partitions = crate::platform::detect_partitions(&dev_path);
-                
+
                 let smart_health = if device_type.contains("NVMe") {
                     "Healthy (99% Life, 32°C)".to_string()
                 } else if device_type.contains("SSD") {
@@ -100,18 +100,18 @@ impl DeviceBackend for LinuxBackend {
     fn open_readonly(path: &str) -> Result<RawDevice> {
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
-        
+
         let file = match options.custom_flags(libc::O_DIRECT).open(path) {
             Ok(f) => f,
             Err(_) => {
                 std::fs::OpenOptions::new()
                     .read(true)
                     .open(path)
-                    .map_err(|e| ForgelensError::Backend(format!("Failed to open {}: {}", path, e)))?
+                    .map_err(|e| OpenForensicError::Backend(format!("Failed to open {}: {}", path, e)))?
             }
         };
 
-        let metadata = file.metadata().map_err(|e| ForgelensError::Backend(e.to_string()))?;
+        let metadata = file.metadata().map_err(|e| OpenForensicError::Backend(e.to_string()))?;
         let mut size = metadata.len();
 
         if size == 0 {
@@ -137,7 +137,7 @@ impl DeviceBackend for LinuxBackend {
         unsafe {
             let res = libc::ioctl(fd, BLKROSET, &ro);
             if res != 0 {
-                return Err(ForgelensError::Backend(format!(
+                return Err(OpenForensicError::Backend(format!(
                     "Failed to set kernel read-only mode via BLKROSET: {}",
                     std::io::Error::last_os_error()
                 )));

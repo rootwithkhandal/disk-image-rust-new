@@ -1,5 +1,5 @@
 /* --------------------------------------------------
-   FORGELENS Forensic Disk Imager Stylesheet
+   OpenForensic Forensic Disk Imager Stylesheet
    Premium Dark-Theme & Glassmorphism Aesthetics
 -------------------------------------------------- */
 
@@ -9,28 +9,28 @@
   --bg-surface: #0f141d;
   --bg-card: #151c27;
   --bg-card-selected: #0a2522;
-  
+
   --accent-primary: #00d4aa;
   --accent-secondary: #008f73;
   --accent-glow: rgba(0, 212, 170, 0.15);
-  
+
   --text-main: #f0f3f8;
   --text-muted: #8c9bb0;
   --text-dark: #080b10;
-  
+
   --color-border: #222d3d;
   --color-border-focus: #00d4aa;
-  
+
   --color-error: #ff5c5c;
   --color-error-bg: rgba(255, 92, 92, 0.1);
   --color-warning: #ffaa00;
   --color-warning-bg: rgba(255, 170, 0, 0.1);
   --color-success: #00ffaa;
-  
+
   /* Fonts */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  
+
   /* Shadow & Blur */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -43,18 +43,18 @@
   --bg-surface: #ffffff;
   --bg-card: #ffffff;
   --bg-card-selected: #e6edff;
-  
+
   --accent-primary: #0057ff;
   --accent-secondary: #0044cc;
   --accent-glow: rgba(0, 87, 255, 0.15);
-  
+
   --text-main: #0f1923;
   --text-muted: #6b7d91;
   --text-dark: #ffffff;
-  
+
   --color-border: #dde3ea;
   --color-border-focus: #0057ff;
-  
+
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.1);
   --shadow-teal: 0 0 16px rgba(0, 87, 255, 0.2);
@@ -903,5 +903,3 @@ input[type="text"]:focus, select:focus {
 .tab-panel.hidden {
   display: none !important;
 }
-
-

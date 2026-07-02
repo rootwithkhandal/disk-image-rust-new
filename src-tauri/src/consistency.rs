@@ -4,7 +4,7 @@
 //! to detect drift or corruption.
 
 use crate::acquisition::ProgressEvent;
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use std::io::{Read, Seek, SeekFrom};
 use tokio::sync::mpsc::Sender;
 
@@ -55,16 +55,16 @@ pub async fn validate_consistency(
 
     // Open the acquired image
     let mut image_file = std::fs::File::open(&config.image_path)
-        .map_err(|e| ForgelensError::Backend(
+        .map_err(|e| OpenForensicError::Backend(
             format!("Failed to open image file '{}': {}", config.image_path, e)
         ))?;
 
     let image_size = image_file.metadata()
-        .map_err(|e| ForgelensError::Backend(format!("Failed to get image metadata: {}", e)))?
+        .map_err(|e| OpenForensicError::Backend(format!("Failed to get image metadata: {}", e)))?
         .len();
 
     if image_size == 0 {
-        return Err(ForgelensError::Backend("Image file is empty".to_string()));
+        return Err(OpenForensicError::Backend("Image file is empty".to_string()));
     }
 
     // Open the VSS shadow copy device
@@ -103,7 +103,7 @@ pub async fn validate_consistency(
 
     for i in 0..sample_count {
         if progress_tx.is_closed() {
-            return Err(ForgelensError::Cancelled);
+            return Err(OpenForensicError::Cancelled);
         }
 
         // Generate a random block-aligned offset
@@ -113,15 +113,15 @@ pub async fn validate_consistency(
 
         // Read from image
         image_file.seek(SeekFrom::Start(offset))
-            .map_err(|e| ForgelensError::Backend(format!("Image seek error at offset {}: {}", offset, e)))?;
+            .map_err(|e| OpenForensicError::Backend(format!("Image seek error at offset {}: {}", offset, e)))?;
         let image_read = image_file.read(&mut image_buf)
-            .map_err(|e| ForgelensError::Backend(format!("Image read error at offset {}: {}", offset, e)))?;
+            .map_err(|e| OpenForensicError::Backend(format!("Image read error at offset {}: {}", offset, e)))?;
 
         // Read from VSS
         vss_file.seek(SeekFrom::Start(offset))
-            .map_err(|e| ForgelensError::Backend(format!("VSS seek error at offset {}: {}", offset, e)))?;
+            .map_err(|e| OpenForensicError::Backend(format!("VSS seek error at offset {}: {}", offset, e)))?;
         let vss_read = vss_file.read(&mut vss_buf)
-            .map_err(|e| ForgelensError::Backend(format!("VSS read error at offset {}: {}", offset, e)))?;
+            .map_err(|e| OpenForensicError::Backend(format!("VSS read error at offset {}: {}", offset, e)))?;
 
         // Compare
         if image_read == vss_read && image_buf[..image_read] == vss_buf[..vss_read] {
@@ -183,7 +183,7 @@ fn open_vss_device(vss_path: &str) -> Result<std::fs::File> {
     // On Windows, VSS shadow device paths can be opened with standard file APIs
     // as long as we use the \\?\ prefix correctly.
     std::fs::File::open(vss_path)
-        .map_err(|e| ForgelensError::Backend(
+        .map_err(|e| OpenForensicError::Backend(
             format!("Failed to open VSS device '{}': {}", vss_path, e)
         ))
 }
@@ -192,7 +192,7 @@ fn open_vss_device(vss_path: &str) -> Result<std::fs::File> {
 #[cfg(not(target_os = "windows"))]
 fn open_vss_device(vss_path: &str) -> Result<std::fs::File> {
     std::fs::File::open(vss_path)
-        .map_err(|e| ForgelensError::Backend(
+        .map_err(|e| OpenForensicError::Backend(
             format!("Failed to open device '{}': {}", vss_path, e)
         ))
 }

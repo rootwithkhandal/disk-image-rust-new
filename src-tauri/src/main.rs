@@ -1,36 +1,35 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod acquisition;
-mod hasher;
-mod output;
-mod report;
-mod state;
+pub mod case_management;
+pub mod cli;
+mod consistency;
+pub mod encryption;
 mod error;
 mod format;
-mod platform;
-mod memory;
+mod hasher;
 mod locked_files;
-mod consistency;
-pub mod case_management;
-mod yara_scanner;
+mod memory;
+mod output;
 mod pdf_report;
-mod triage_db;
-pub mod timeline;
-mod ram_analysis;
-pub mod plugins;
-pub mod siem;
-pub mod cli;
 pub mod pgp;
-pub mod encryption;
+mod platform;
+pub mod plugins;
+mod ram_analysis;
+mod report;
+pub mod siem;
+mod state;
+pub mod timeline;
+mod triage_db;
+mod yara_scanner;
 
-
-use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
 use acquisition::{AcquisitionConfig, ProgressEvent};
 use output::CompressionFormat;
-use tauri::{AppHandle, Emitter, Manager, State};
-use std::sync::Mutex;
+use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc::Sender;
 
 // State to hold the cancellation sender
@@ -134,14 +133,17 @@ fn browse_file(ext: String) -> Option<String> {
 async fn generate_image_timeline(image_path: String, output_dir: String) -> Result<String, String> {
     let img_path = std::path::PathBuf::from(&image_path);
     let out_dir = std::path::PathBuf::from(&output_dir);
-    
+
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    
+
     crate::timeline::generate_timeline(&img_path, &out_dir)
         .await
         .map_err(|e| e.to_string())?;
-        
-    Ok(format!("Timeline generated successfully in {}", out_dir.display()))
+
+    Ok(format!(
+        "Timeline generated successfully in {}",
+        out_dir.display()
+    ))
 }
 
 #[tauri::command]
@@ -171,11 +173,17 @@ fn clear_active_task(app_handle: &AppHandle) {
 }
 
 fn format_ext(mode: &str) -> &'static str {
-    if mode.contains("EX01") { "ex01" }
-    else if mode.contains("E01") { "e01" }
-    else if mode.contains("AFF") { "aff4" }
-    else if mode.contains("SMART") { "smart" }
-    else { "dd" }
+    if mode.contains("EX01") {
+        "ex01"
+    } else if mode.contains("E01") {
+        "e01"
+    } else if mode.contains("AFF") {
+        "aff4"
+    } else if mode.contains("SMART") {
+        "smart"
+    } else {
+        "dd"
+    }
 }
 
 #[tauri::command]
@@ -214,7 +222,11 @@ async fn start_acquisition(
 
         let algos = config_input.hash_algorithms.clone();
         if algos.is_empty() {
-            let _ = tx.send(ProgressEvent::Error("At least one hash algorithm must be enabled.".to_string())).await;
+            let _ = tx
+                .send(ProgressEvent::Error(
+                    "At least one hash algorithm must be enabled.".to_string(),
+                ))
+                .await;
             clear_active_task(&app_handle);
             return;
         }
@@ -249,7 +261,11 @@ async fn start_acquisition(
                 ))
                 .await;
             } else {
-                let _ = tx.send(ProgressEvent::Error("Failed to load checkpoint file for resume.".to_string())).await;
+                let _ = tx
+                    .send(ProgressEvent::Error(
+                        "Failed to load checkpoint file for resume.".to_string(),
+                    ))
+                    .await;
                 clear_active_task(&app_handle);
                 return;
             }
@@ -272,12 +288,20 @@ async fn start_acquisition(
             read_verification: config_input.read_verification,
             keywords: config_input.keywords.clone(),
             yara_rules_path: config_input.yara_rules_path.clone(),
-            active_plugins: app_handle.state::<PluginManagerState>().lock().map(|m| m.get_active_plugins().into_iter().map(|(_, p)| p).collect()).unwrap_or_default(),
+            active_plugins: app_handle
+                .state::<PluginManagerState>()
+                .lock()
+                .map(|m| m.get_active_plugins().into_iter().map(|(_, p)| p).collect())
+                .unwrap_or_default(),
         };
 
         let source_path = config_input.source_path.clone();
         log(format!("[ACQUISITION] Source Path: {}", source_path)).await;
-        log(format!("[ACQUISITION] Destination Path: {}", dest_file_path.display())).await;
+        log(format!(
+            "[ACQUISITION] Destination Path: {}",
+            dest_file_path.display()
+        ))
+        .await;
 
         let start_time_utc = chrono::Utc::now();
 
@@ -285,15 +309,30 @@ async fn start_acquisition(
         if is_logical {
             if config_input.hash_verification == "Pre & Post-Acquisition" && start_offset == 0 {
                 log("[ACQUISITION] Pre-Acquisition hashing started (Logical)...".to_string()).await;
-                match crate::acquisition::compute_logical_hash(std::path::Path::new(&source_path), &algos, tx.clone()).await {
+                match crate::acquisition::compute_logical_hash(
+                    std::path::Path::new(&source_path),
+                    &algos,
+                    tx.clone(),
+                )
+                .await
+                {
                     Ok(hashes) => {
                         pre_hashes = hashes.clone();
                         if let Some(hash_val) = hashes.values().next() {
-                            log(format!("[ACQUISITION] Pre-Acquisition Hash (Logical): {}", hash_val)).await;
+                            log(format!(
+                                "[ACQUISITION] Pre-Acquisition Hash (Logical): {}",
+                                hash_val
+                            ))
+                            .await;
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(ProgressEvent::Error(format!("Pre-Acquisition hash error: {}", e))).await;
+                        let _ = tx
+                            .send(ProgressEvent::Error(format!(
+                                "Pre-Acquisition hash error: {}",
+                                e
+                            )))
+                            .await;
                         clear_active_task(&app_handle);
                         return;
                     }
@@ -313,7 +352,13 @@ async fn start_acquisition(
                     let mut post_hashes = None;
                     if config_input.hash_verification.contains("Post") {
                         log("[ACQUISITION] Computing post-acquisition hash for logical destination...".to_string()).await;
-                        match crate::acquisition::compute_logical_hash(&dest_file_path, &algos, tx.clone()).await {
+                        match crate::acquisition::compute_logical_hash(
+                            &dest_file_path,
+                            &algos,
+                            tx.clone(),
+                        )
+                        .await
+                        {
                             Ok(hashes) => {
                                 post_hashes = Some(hashes);
                             }
@@ -356,14 +401,25 @@ async fn start_acquisition(
                     let _ = crate::report::generate_txt_report(&report_path, &report_data);
                     log("[SYSTEM] Logical report generated successfully.".to_string()).await;
                     if let Ok(app_dir) = app_handle.path().app_data_dir() {
-                        if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
-                            if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
-                                log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display())).await;
+                        if let Ok((priv_pem, _, _)) =
+                            crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))
+                        {
+                            if let Ok(sig_path) =
+                                crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem)
+                            {
+                                log(format!(
+                                    "[PGP SIGN] Court-ready PGP integrity manifest signed: {}",
+                                    sig_path.display()
+                                ))
+                                .await;
                             }
                         }
                     }
-                    
-                    let hash_log = format!("Pre: {:?}\nPost: {:?}", report_data.pre_hashes, report_data.post_hashes);
+
+                    let hash_log = format!(
+                        "Pre: {:?}\nPost: {:?}",
+                        report_data.pre_hashes, report_data.post_hashes
+                    );
                     let _ = crate::case_management::log_acquisition_to_db(
                         &app_handle,
                         &config.case_number,
@@ -377,21 +433,47 @@ async fn start_acquisition(
                         "Completed",
                     );
 
-                    let _ = tx.send(ProgressEvent::Log("[SYSTEM] Generating PDF Report...".to_string())).await;
-                    if let Err(e) = crate::pdf_report::generate_pdf_report(&config, &result, &start_time_utc, &end_time_utc, &dest_file_path) {
-                        let _ = tx.send(ProgressEvent::Log(format!("[WARNING] Failed to generate PDF report: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(
+                            "[SYSTEM] Generating PDF Report...".to_string(),
+                        ))
+                        .await;
+                    if let Err(e) = crate::pdf_report::generate_pdf_report(
+                        &config,
+                        &result,
+                        &start_time_utc,
+                        &end_time_utc,
+                        &dest_file_path,
+                    ) {
+                        let _ = tx
+                            .send(ProgressEvent::Log(format!(
+                                "[WARNING] Failed to generate PDF report: {}",
+                                e
+                            )))
+                            .await;
                     } else {
-                        let _ = tx.send(ProgressEvent::Log("[SYSTEM] PDF Report generated successfully.".to_string())).await;
+                        let _ = tx
+                            .send(ProgressEvent::Log(
+                                "[SYSTEM] PDF Report generated successfully.".to_string(),
+                            ))
+                            .await;
                     }
 
-                    let _ = tx.send(ProgressEvent::Finished {
-                        bytes_read: result.bytes_read,
-                        bad_sectors: 0,
-                        hashes: result.hashes,
-                    }).await;
+                    let _ = tx
+                        .send(ProgressEvent::Finished {
+                            bytes_read: result.bytes_read,
+                            bad_sectors: 0,
+                            hashes: result.hashes,
+                        })
+                        .await;
                 }
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!("Logical acquisition error: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Error(format!(
+                            "Logical acquisition error: {}",
+                            e
+                        )))
+                        .await;
                 }
             }
         } else {
@@ -411,13 +493,25 @@ async fn start_acquisition(
                 }
             }
 
-            log(format!("[ACQUISITION] Found source block size: {} bytes", size)).await;
+            log(format!(
+                "[ACQUISITION] Found source block size: {} bytes",
+                size
+            ))
+            .await;
 
             // Check for Volume Encryption (BitLocker, LUKS, FileVault, Android FBE)
             if let Ok(enc_report) = crate::encryption::inspect_device_encryption(&source_path) {
                 if enc_report.is_encrypted {
-                    log(format!("[SECURITY WARNING] Detected Volume Encryption: {} on {}", enc_report.encryption_type, source_path)).await;
-                    log(format!("[SECURITY WARNING] Actionable Recommendation: {}", enc_report.recommended_action)).await;
+                    log(format!(
+                        "[SECURITY WARNING] Detected Volume Encryption: {} on {}",
+                        enc_report.encryption_type, source_path
+                    ))
+                    .await;
+                    log(format!(
+                        "[SECURITY WARNING] Actionable Recommendation: {}",
+                        enc_report.recommended_action
+                    ))
+                    .await;
                     if enc_report.encryption_type == crate::encryption::EncryptionType::AndroidFbe {
                         log("[CRITICAL BLOCKER PREVENTED] Android FBE (File-Based Encryption / fscrypt post-Android 7) detected! Standard physical imaging will produce un-decryptable garbage ciphertext. Activating OpenForensic FBE CE/DE Logical Stream Hook...".to_string()).await;
                     }
@@ -431,7 +525,9 @@ async fn start_acquisition(
             let mut config = config;
             if config_input.hash_verification == "Pre & Post-Acquisition" && start_offset == 0 {
                 log("[ACQUISITION] Pre-Acquisition hashing started...".to_string()).await;
-                match crate::acquisition::compute_pre_hash(&source_path, size, &algos, tx.clone()).await {
+                match crate::acquisition::compute_pre_hash(&source_path, size, &algos, tx.clone())
+                    .await
+                {
                     Ok(hashes) => {
                         pre_hashes = hashes;
                         if let Some(hash_val) = pre_hashes.values().next() {
@@ -440,7 +536,12 @@ async fn start_acquisition(
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(ProgressEvent::Error(format!("Pre-Acquisition hash error: {}", e))).await;
+                        let _ = tx
+                            .send(ProgressEvent::Error(format!(
+                                "Pre-Acquisition hash error: {}",
+                                e
+                            )))
+                            .await;
                         clear_active_task(&app_handle);
                         return;
                     }
@@ -451,7 +552,12 @@ async fn start_acquisition(
             let mut source_dev = match ActiveBackend::open_readonly(&source_path) {
                 Ok(s) => s,
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!("Failed to open device: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Error(format!(
+                            "Failed to open device: {}",
+                            e
+                        )))
+                        .await;
                     clear_active_task(&app_handle);
                     return;
                 }
@@ -459,7 +565,9 @@ async fn start_acquisition(
 
             // Enforce write block
             if let Err(e) = ActiveBackend::enforce_write_block(&mut source_dev) {
-                let _ = tx.send(ProgressEvent::Error(format!("Write block failure: {}", e))).await;
+                let _ = tx
+                    .send(ProgressEvent::Error(format!("Write block failure: {}", e)))
+                    .await;
                 clear_active_task(&app_handle);
                 return;
             }
@@ -479,7 +587,12 @@ async fn start_acquisition(
             ) {
                 Ok(w) => w,
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!("Failed to create output: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Error(format!(
+                            "Failed to create output: {}",
+                            e
+                        )))
+                        .await;
                     clear_active_task(&app_handle);
                     return;
                 }
@@ -487,7 +600,9 @@ async fn start_acquisition(
 
             if start_offset == 0 {
                 let _ = dest_writer.write_format_header(
-                    format_ext(&config_input.format_mode).to_uppercase().as_str(),
+                    format_ext(&config_input.format_mode)
+                        .to_uppercase()
+                        .as_str(),
                     &config.case_number,
                     &config.examiner,
                     &config.evidence_id,
@@ -515,7 +630,9 @@ async fn start_acquisition(
                             &dest_file_path,
                             &config.hash_algorithms,
                             tx.clone(),
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(hashes) => {
                                 post_hashes = Some(hashes);
                             }
@@ -556,30 +673,58 @@ async fn start_acquisition(
                     };
                     let report_path = dest_file_path.with_extension("report.txt");
                     let _ = crate::report::generate_txt_report(&report_path, &report_data);
-                    
+
                     // Generate HTML, JSON, and CSV reports
-                    let _ = crate::report::generate_html_report(dest_file_path.with_extension("report.html"), &report_data);
-                    let _ = crate::report::generate_json_report(dest_file_path.with_extension("report.json"), &report_data);
-                    let _ = crate::report::generate_csv_report(dest_file_path.with_extension("report.csv"), &report_data);
-                    log("[SYSTEM] Multi-format reports (HTML, JSON, CSV) generated successfully.".to_string()).await;
+                    let _ = crate::report::generate_html_report(
+                        dest_file_path.with_extension("report.html"),
+                        &report_data,
+                    );
+                    let _ = crate::report::generate_json_report(
+                        dest_file_path.with_extension("report.json"),
+                        &report_data,
+                    );
+                    let _ = crate::report::generate_csv_report(
+                        dest_file_path.with_extension("report.csv"),
+                        &report_data,
+                    );
+                    log(
+                        "[SYSTEM] Multi-format reports (HTML, JSON, CSV) generated successfully."
+                            .to_string(),
+                    )
+                    .await;
                     if let Ok(app_dir) = app_handle.path().app_data_dir() {
-                        if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
-                            if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
-                                log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display())).await;
+                        if let Ok((priv_pem, _, _)) =
+                            crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))
+                        {
+                            if let Ok(sig_path) =
+                                crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem)
+                            {
+                                log(format!(
+                                    "[PGP SIGN] Court-ready PGP integrity manifest signed: {}",
+                                    sig_path.display()
+                                ))
+                                .await;
                             }
                         }
                     }
 
                     if config_input.digital_signature {
                         if let Ok(content) = std::fs::read_to_string(&report_path) {
-                            let sig = crate::hasher::generate_report_seal(&content, &report_data.case_number);
+                            let sig = crate::hasher::generate_report_seal(
+                                &content,
+                                &report_data.case_number,
+                            );
                             let sig_path = dest_file_path.with_extension("signature");
                             if let Ok(mut sig_file) = std::fs::File::create(sig_path) {
                                 use std::io::Write;
                                 let _ = writeln!(sig_file, "=== OPENFORENSIC FORENSIC SEAL ===");
                                 let _ = writeln!(sig_file, "Signature: {}", sig);
                                 let _ = writeln!(sig_file, "Workstation ID: WORKSTATION-STN-01");
-                                let _ = writeln!(sig_file, "Timestamp: {}", chrono::Utc::now().to_rfc2822());
+                                let _ = writeln!(
+                                    sig_file,
+                                    "Timestamp: {}",
+                                    chrono::Utc::now().to_rfc2822()
+                                );
                                 log("[SYSTEM] Cryptographic digital signature generated successfully.".to_string()).await;
                             }
                         }
@@ -590,7 +735,10 @@ async fn start_acquisition(
                         let _ = std::fs::remove_file(checkpoint_path);
                     }
 
-                    let hash_log = format!("Pre: {:?}\nPost: {:?}", report_data.pre_hashes, report_data.post_hashes);
+                    let hash_log = format!(
+                        "Pre: {:?}\nPost: {:?}",
+                        report_data.pre_hashes, report_data.post_hashes
+                    );
                     let _ = crate::case_management::log_acquisition_to_db(
                         &app_handle,
                         &config.case_number,
@@ -604,24 +752,47 @@ async fn start_acquisition(
                         "Completed",
                     );
 
-                    let _ = tx.send(ProgressEvent::Log("[SYSTEM] Generating PDF Report...".to_string())).await;
-                    if let Err(e) = crate::pdf_report::generate_pdf_report(&config, &result, &start_time_utc, &chrono::Utc::now(), &dest_file_path) {
-                        let _ = tx.send(ProgressEvent::Log(format!("[WARNING] Failed to generate PDF report: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(
+                            "[SYSTEM] Generating PDF Report...".to_string(),
+                        ))
+                        .await;
+                    if let Err(e) = crate::pdf_report::generate_pdf_report(
+                        &config,
+                        &result,
+                        &start_time_utc,
+                        &chrono::Utc::now(),
+                        &dest_file_path,
+                    ) {
+                        let _ = tx
+                            .send(ProgressEvent::Log(format!(
+                                "[WARNING] Failed to generate PDF report: {}",
+                                e
+                            )))
+                            .await;
                     } else {
-                        let _ = tx.send(ProgressEvent::Log("[SYSTEM] PDF Report generated successfully.".to_string())).await;
+                        let _ = tx
+                            .send(ProgressEvent::Log(
+                                "[SYSTEM] PDF Report generated successfully.".to_string(),
+                            ))
+                            .await;
                     }
 
-                    let _ = tx.send(ProgressEvent::Finished {
-                        bytes_read: result.bytes_read,
-                        bad_sectors: result.bad_sectors + bad_sectors_start,
-                        hashes: result.hashes,
-                    }).await;
+                    let _ = tx
+                        .send(ProgressEvent::Finished {
+                            bytes_read: result.bytes_read,
+                            bad_sectors: result.bad_sectors + bad_sectors_start,
+                            hashes: result.hashes,
+                        })
+                        .await;
                 }
-                Err(crate::error::ForgelensError::Cancelled) => {
+                Err(crate::error::OpenForensicError::Cancelled) => {
                     log("[SYSTEM] Acquisition cancelled by user. State saved.".to_string()).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!("Acquisition error: {}", e))).await;
+                    let _ = tx
+                        .send(ProgressEvent::Error(format!("Acquisition error: {}", e)))
+                        .await;
                 }
             }
         }
@@ -673,7 +844,9 @@ async fn start_triage(
         {
             Ok(_) => {}
             Err(e) => {
-                let _ = tx.send(ProgressEvent::Error(format!("Triage error: {}", e))).await;
+                let _ = tx
+                    .send(ProgressEvent::Error(format!("Triage error: {}", e)))
+                    .await;
             }
         }
         clear_active_task(&app_handle);
@@ -685,30 +858,47 @@ async fn start_triage(
 #[tauri::command]
 async fn query_triage_db(db_path: String, table_name: String) -> Result<String, String> {
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
-    
-    let valid_tables = ["processes", "network_connections", "browser_history", "event_logs"];
+
+    let valid_tables = [
+        "processes",
+        "network_connections",
+        "browser_history",
+        "event_logs",
+    ];
     if !valid_tables.contains(&table_name.as_str()) {
         return Err("Invalid table name".to_string());
     }
 
-    let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name)).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(&format!("SELECT * FROM {}", table_name))
+        .map_err(|e| e.to_string())?;
     let column_count = stmt.column_count();
-    let column_names: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
+    let column_names: Vec<String> = stmt
+        .column_names()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
 
-    let rows = stmt.query_map([], |row| {
-        let mut map = serde_json::Map::new();
-        for i in 0..column_count {
-            let val = match row.get_ref(i).unwrap() {
-                rusqlite::types::ValueRef::Null => serde_json::Value::Null,
-                rusqlite::types::ValueRef::Integer(i) => serde_json::json!(i),
-                rusqlite::types::ValueRef::Real(f) => serde_json::json!(f),
-                rusqlite::types::ValueRef::Text(t) => serde_json::json!(String::from_utf8_lossy(t)),
-                rusqlite::types::ValueRef::Blob(b) => serde_json::json!(format!("<blob {} bytes>", b.len())),
-            };
-            map.insert(column_names[i].clone(), val);
-        }
-        Ok(serde_json::Value::Object(map))
-    }).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let mut map = serde_json::Map::new();
+            for i in 0..column_count {
+                let val = match row.get_ref(i).unwrap() {
+                    rusqlite::types::ValueRef::Null => serde_json::Value::Null,
+                    rusqlite::types::ValueRef::Integer(i) => serde_json::json!(i),
+                    rusqlite::types::ValueRef::Real(f) => serde_json::json!(f),
+                    rusqlite::types::ValueRef::Text(t) => {
+                        serde_json::json!(String::from_utf8_lossy(t))
+                    }
+                    rusqlite::types::ValueRef::Blob(b) => {
+                        serde_json::json!(format!("<blob {} bytes>", b.len()))
+                    }
+                };
+                map.insert(column_names[i].clone(), val);
+            }
+            Ok(serde_json::Value::Object(map))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut results = Vec::new();
     for result in rows {
@@ -732,9 +922,9 @@ async fn list_volumes() -> Result<Vec<VolumeInfo>, String> {
                 .collect();
 
             let drive_type = unsafe {
-                windows::Win32::Storage::FileSystem::GetDriveTypeW(
-                    windows::core::PCWSTR(drive_w.as_ptr())
-                )
+                windows::Win32::Storage::FileSystem::GetDriveTypeW(windows::core::PCWSTR(
+                    drive_w.as_ptr(),
+                ))
             };
 
             // DRIVE_FIXED = 3, DRIVE_REMOVABLE = 2
@@ -753,7 +943,11 @@ async fn list_volumes() -> Result<Vec<VolumeInfo>, String> {
 
                 volumes.push(VolumeInfo {
                     letter: format!("{}:", letter as char),
-                    label: if drive_type == 2 { "Removable".to_string() } else { "Fixed".to_string() },
+                    label: if drive_type == 2 {
+                        "Removable".to_string()
+                    } else {
+                        "Fixed".to_string()
+                    },
                     fs_type: "NTFS".to_string(),
                     total_size: total_bytes,
                     free_space: free_bytes,
@@ -844,9 +1038,11 @@ async fn start_live_acquisition(
         let consistency_blocks_matched: Option<u64> = None;
         let consistency_mismatches: Vec<u64> = Vec::new();
 
-        let _ = tx.send(ProgressEvent::Log(
-            "[LIVE] Starting live system acquisition pipeline...".to_string()
-        )).await;
+        let _ = tx
+            .send(ProgressEvent::Log(
+                "[LIVE] Starting live system acquisition pipeline...".to_string(),
+            ))
+            .await;
 
         let mut source_size = 0u64;
         if let Ok(vols) = list_volumes().await {
@@ -858,16 +1054,21 @@ async fn start_live_acquisition(
         // ── Step 1: Create VSS Snapshot ──
         #[cfg(target_os = "windows")]
         {
-            let _ = tx.send(ProgressEvent::Log(
-                format!("[LIVE] Creating VSS snapshot for volume {}...", config_input.volume)
-            )).await;
+            let _ = tx
+                .send(ProgressEvent::Log(format!(
+                    "[LIVE] Creating VSS snapshot for volume {}...",
+                    config_input.volume
+                )))
+                .await;
 
             match crate::platform::vss::VssSnapshot::create(&config_input.volume) {
                 Ok(snapshot) => {
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] VSS Snapshot created: ID={}, Device={}",
-                            snapshot.shadow_id, snapshot.device_path)
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] VSS Snapshot created: ID={}, Device={}",
+                            snapshot.shadow_id, snapshot.device_path
+                        )))
+                        .await;
                     vss_snapshot_id = Some(snapshot.shadow_id.clone());
                     vss_device_path = Some(snapshot.device_path.clone());
                 }
@@ -881,16 +1082,20 @@ async fn start_live_acquisition(
 
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = tx.send(ProgressEvent::Log(
-                "[LIVE] VSS snapshots are only available on Windows. Skipping.".to_string()
-            )).await;
+            let _ = tx
+                .send(ProgressEvent::Log(
+                    "[LIVE] VSS snapshots are only available on Windows. Skipping.".to_string(),
+                ))
+                .await;
         }
 
         // ── Step 2: RAM Acquisition ──
         if config_input.capture_ram {
-            let _ = tx.send(ProgressEvent::Log(
-                "[LIVE] Starting physical memory (RAM) acquisition...".to_string()
-            )).await;
+            let _ = tx
+                .send(ProgressEvent::Log(
+                    "[LIVE] Starting physical memory (RAM) acquisition...".to_string(),
+                ))
+                .await;
 
             let ram_dest = dest_dir.join("memory_dump.raw");
             let ram_config = crate::memory::MemoryDumpConfig {
@@ -906,24 +1111,31 @@ async fn start_live_acquisition(
                     if let Some(hash_val) = result.hashes.values().next() {
                         ram_dump_hash = Some(hash_val.clone());
                     }
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] RAM acquisition complete: {} bytes using {}",
-                            result.bytes_captured, result.tool_used)
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] RAM acquisition complete: {} bytes using {}",
+                            result.bytes_captured, result.tool_used
+                        )))
+                        .await;
                 }
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] WARNING: RAM acquisition failed: {}. Continuing.", e)
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] WARNING: RAM acquisition failed: {}. Continuing.",
+                            e
+                        )))
+                        .await;
                 }
             }
         }
 
         // ── Step 3: Locked File Acquisition ──
         if config_input.capture_locked_files {
-            let _ = tx.send(ProgressEvent::Log(
-                "[LIVE] Starting locked file acquisition...".to_string()
-            )).await;
+            let _ = tx
+                .send(ProgressEvent::Log(
+                    "[LIVE] Starting locked file acquisition...".to_string(),
+                ))
+                .await;
 
             let locked_config = crate::locked_files::LockedFileCopyConfig {
                 dest_dir: dest_dir.clone(),
@@ -934,19 +1146,25 @@ async fn start_live_acquisition(
 
             match crate::locked_files::copy_locked_files(&locked_config, tx.clone()).await {
                 Ok(results) => {
-                    locked_files_list = results.iter()
+                    locked_files_list = results
+                        .iter()
                         .filter(|r| r.success)
                         .map(|r| r.source_path.clone())
                         .collect();
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] Locked file acquisition: {} files copied successfully",
-                            locked_files_list.len())
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] Locked file acquisition: {} files copied successfully",
+                            locked_files_list.len()
+                        )))
+                        .await;
                 }
                 Err(e) => {
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] WARNING: Locked file acquisition failed: {}. Continuing.", e)
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] WARNING: Locked file acquisition failed: {}. Continuing.",
+                            e
+                        )))
+                        .await;
                 }
             }
         }
@@ -954,9 +1172,11 @@ async fn start_live_acquisition(
         // ── Step 3.5: VSS Physical Image ──
         if config_input.image_vss {
             if let Some(ref vss_path) = vss_device_path {
-                let _ = tx.send(ProgressEvent::Log(
-                    "[LIVE] Starting physical imaging of VSS snapshot...".to_string()
-                )).await;
+                let _ = tx
+                    .send(ProgressEvent::Log(
+                        "[LIVE] Starting physical imaging of VSS snapshot...".to_string(),
+                    ))
+                    .await;
 
                 match crate::platform::ActiveBackend::open_readonly(vss_path) {
                     Ok(mut source_dev) => {
@@ -979,14 +1199,20 @@ async fn start_live_acquisition(
                             read_verification: false,
                             keywords: Vec::new(),
                             yara_rules_path: None,
-                            active_plugins: app_handle.state::<PluginManagerState>().lock().map(|m| m.get_active_plugins().into_iter().map(|(_, p)| p).collect()).unwrap_or_default(),
+                            active_plugins: app_handle
+                                .state::<PluginManagerState>()
+                                .lock()
+                                .map(|m| {
+                                    m.get_active_plugins().into_iter().map(|(_, p)| p).collect()
+                                })
+                                .unwrap_or_default(),
                         };
 
                         match crate::output::OutputWriter::new(
-                            &vss_dest_path, 
-                            None, 
-                            config.compression, 
-                            false, 
+                            &vss_dest_path,
+                            None,
+                            config.compression,
+                            false,
                             false,
                             "RAW",
                             &config_input.case_number,
@@ -1003,11 +1229,16 @@ async fn start_live_acquisition(
                                     tx.clone(),
                                     &checkpoint_path,
                                     0,
-                                ).await {
+                                )
+                                .await
+                                {
                                     Ok(result) => {
-                                        let _ = tx.send(ProgressEvent::Log(
-                                            format!("[LIVE] VSS imaging complete: {} bytes acquired.", result.bytes_read)
-                                        )).await;
+                                        let _ = tx
+                                            .send(ProgressEvent::Log(format!(
+                                                "[LIVE] VSS imaging complete: {} bytes acquired.",
+                                                result.bytes_read
+                                            )))
+                                            .await;
                                         if checkpoint_path.exists() {
                                             let _ = std::fs::remove_file(checkpoint_path);
                                         }
@@ -1033,9 +1264,11 @@ async fn start_live_acquisition(
                     }
                 }
             } else {
-                let _ = tx.send(ProgressEvent::Log(
-                    "[LIVE] Skipping VSS imaging: no VSS snapshot available.".to_string()
-                )).await;
+                let _ = tx
+                    .send(ProgressEvent::Log(
+                        "[LIVE] Skipping VSS imaging: no VSS snapshot available.".to_string(),
+                    ))
+                    .await;
             }
         }
 
@@ -1044,14 +1277,18 @@ async fn start_live_acquisition(
         // For now, consistency check needs a previously created image — skip if no VSS
         if config_input.run_consistency_check {
             if let Some(ref _vss_path) = vss_device_path {
-                let _ = tx.send(ProgressEvent::Log(
-                    "[LIVE] Consistency validation will run after image creation.".to_string()
-                )).await;
+                let _ = tx
+                    .send(ProgressEvent::Log(
+                        "[LIVE] Consistency validation will run after image creation.".to_string(),
+                    ))
+                    .await;
                 // Will be executed post-imaging if an image file is created
             } else {
-                let _ = tx.send(ProgressEvent::Log(
-                    "[LIVE] Skipping consistency check: no VSS snapshot available.".to_string()
-                )).await;
+                let _ = tx
+                    .send(ProgressEvent::Log(
+                        "[LIVE] Skipping consistency check: no VSS snapshot available.".to_string(),
+                    ))
+                    .await;
             }
         }
 
@@ -1060,9 +1297,12 @@ async fn start_live_acquisition(
         {
             if config_input.auto_cleanup_vss {
                 if let Some(ref sid) = vss_snapshot_id {
-                    let _ = tx.send(ProgressEvent::Log(
-                        format!("[LIVE] Cleaning up VSS snapshot {}...", sid)
-                    )).await;
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[LIVE] Cleaning up VSS snapshot {}...",
+                            sid
+                        )))
+                        .await;
                     let snapshot = crate::platform::vss::VssSnapshot {
                         shadow_id: sid.clone(),
                         device_path: vss_device_path.clone().unwrap_or_default(),
@@ -1070,21 +1310,28 @@ async fn start_live_acquisition(
                     };
                     match snapshot.delete() {
                         Ok(_) => {
-                            let _ = tx.send(ProgressEvent::Log(
-                                "[LIVE] VSS snapshot deleted successfully.".to_string()
-                            )).await;
+                            let _ = tx
+                                .send(ProgressEvent::Log(
+                                    "[LIVE] VSS snapshot deleted successfully.".to_string(),
+                                ))
+                                .await;
                         }
                         Err(e) => {
-                            let _ = tx.send(ProgressEvent::Log(
-                                format!("[LIVE] WARNING: Failed to delete VSS snapshot: {}", e)
-                            )).await;
+                            let _ = tx
+                                .send(ProgressEvent::Log(format!(
+                                    "[LIVE] WARNING: Failed to delete VSS snapshot: {}",
+                                    e
+                                )))
+                                .await;
                         }
                     }
                 }
             } else if vss_snapshot_id.is_some() {
-                let _ = tx.send(ProgressEvent::Log(
-                    "[LIVE] VSS snapshot preserved for examiner inspection.".to_string()
-                )).await;
+                let _ = tx
+                    .send(ProgressEvent::Log(
+                        "[LIVE] VSS snapshot preserved for examiner inspection.".to_string(),
+                    ))
+                    .await;
             }
         }
 
@@ -1121,26 +1368,48 @@ async fn start_live_acquisition(
 
         let report_path = dest_dir.join("live_acquisition_report.txt");
         let _ = crate::report::generate_txt_report(&report_path, &report_data);
-        let _ = crate::report::generate_html_report(dest_dir.join("live_acquisition_report.html"), &report_data);
-        let _ = crate::report::generate_json_report(dest_dir.join("live_acquisition_report.json"), &report_data);
-        let _ = crate::report::generate_csv_report(dest_dir.join("live_acquisition_report.csv"), &report_data);
+        let _ = crate::report::generate_html_report(
+            dest_dir.join("live_acquisition_report.html"),
+            &report_data,
+        );
+        let _ = crate::report::generate_json_report(
+            dest_dir.join("live_acquisition_report.json"),
+            &report_data,
+        );
+        let _ = crate::report::generate_csv_report(
+            dest_dir.join("live_acquisition_report.csv"),
+            &report_data,
+        );
         if let Ok(app_dir) = app_handle.path().app_data_dir() {
-            if let Ok((priv_pem, _, _)) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir)) {
-                if let Ok(sig_path) = crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem) {
-                    let _ = tx.send(ProgressEvent::Log(format!("[PGP SIGN] Court-ready PGP integrity manifest signed: {}", sig_path.display()))).await;
+            if let Ok((priv_pem, _, _)) =
+                crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))
+            {
+                if let Ok(sig_path) =
+                    crate::pgp::PgpManifestSigner::sign_file(&report_path, &priv_pem)
+                {
+                    let _ = tx
+                        .send(ProgressEvent::Log(format!(
+                            "[PGP SIGN] Court-ready PGP integrity manifest signed: {}",
+                            sig_path.display()
+                        )))
+                        .await;
                 }
             }
         }
 
-        let _ = tx.send(ProgressEvent::Log(
-            "[LIVE] Live acquisition pipeline complete. Reports generated.".to_string()
-        )).await;
+        let _ = tx
+            .send(ProgressEvent::Log(
+                "[LIVE] Live acquisition pipeline complete. Reports generated.".to_string(),
+            ))
+            .await;
 
-        let _ = tx.send(ProgressEvent::Finished {
-            bytes_read: source_size,
-            bad_sectors: 0,
-            hashes: HashMap::new(),
-        }).await;
+        let _ = tx
+            .send(ProgressEvent::Finished {
+                bytes_read: source_size,
+                bad_sectors: 0,
+                hashes: HashMap::new(),
+            })
+            .await;
 
         clear_active_task(&app_handle);
     });
@@ -1158,85 +1427,143 @@ async fn test_siem_connection(config: crate::siem::SiemConfig) -> Result<String,
 }
 
 #[tauri::command]
-async fn save_siem_config(config: crate::siem::SiemConfig, state: State<'_, SiemConfigState>) -> Result<(), String> {
-    let mut guard = state.lock().map_err(|_| "SIEM config mutex poisoned".to_string())?;
+async fn save_siem_config(
+    config: crate::siem::SiemConfig,
+    state: State<'_, SiemConfigState>,
+) -> Result<(), String> {
+    let mut guard = state
+        .lock()
+        .map_err(|_| "SIEM config mutex poisoned".to_string())?;
     *guard = Some(config);
     Ok(())
 }
 
 #[tauri::command]
-async fn get_siem_config(state: State<'_, SiemConfigState>) -> Result<Option<crate::siem::SiemConfig>, String> {
-    let guard = state.lock().map_err(|_| "SIEM config mutex poisoned".to_string())?;
+async fn get_siem_config(
+    state: State<'_, SiemConfigState>,
+) -> Result<Option<crate::siem::SiemConfig>, String> {
+    let guard = state
+        .lock()
+        .map_err(|_| "SIEM config mutex poisoned".to_string())?;
     Ok(guard.clone())
 }
 
 #[tauri::command]
-async fn export_triage_to_siem(db_path: String, config: crate::siem::SiemConfig) -> Result<crate::siem::SiemExportSummary, String> {
+async fn export_triage_to_siem(
+    db_path: String,
+    config: crate::siem::SiemConfig,
+) -> Result<crate::siem::SiemExportSummary, String> {
     let client = crate::siem::SiemClient::new(config);
-    client.send_triage_db(std::path::Path::new(&db_path), "MANUAL-EXPORT", None).await
+    client
+        .send_triage_db(std::path::Path::new(&db_path), "MANUAL-EXPORT", None)
+        .await
 }
 
 #[tauri::command]
-async fn load_plugin(path: String, state: State<'_, PluginManagerState>) -> Result<crate::plugins::PluginInfo, String> {
+async fn load_plugin(
+    path: String,
+    state: State<'_, PluginManagerState>,
+) -> Result<crate::plugins::PluginInfo, String> {
     let path = std::path::Path::new(&path);
-    let mut manager = state.lock().map_err(|_| "Plugin manager mutex poisoned".to_string())?;
+    let mut manager = state
+        .lock()
+        .map_err(|_| "Plugin manager mutex poisoned".to_string())?;
     manager.load_plugin_from_file(path)
 }
 
 #[tauri::command]
-async fn list_plugins(state: State<'_, PluginManagerState>) -> Result<Vec<crate::plugins::PluginInfo>, String> {
-    let manager = state.lock().map_err(|_| "Plugin manager mutex poisoned".to_string())?;
+async fn list_plugins(
+    state: State<'_, PluginManagerState>,
+) -> Result<Vec<crate::plugins::PluginInfo>, String> {
+    let manager = state
+        .lock()
+        .map_err(|_| "Plugin manager mutex poisoned".to_string())?;
     Ok(manager.list_plugins())
 }
 
 #[tauri::command]
 async fn unload_plugin(name: String, state: State<'_, PluginManagerState>) -> Result<(), String> {
-    let mut manager = state.lock().map_err(|_| "Plugin manager mutex poisoned".to_string())?;
+    let mut manager = state
+        .lock()
+        .map_err(|_| "Plugin manager mutex poisoned".to_string())?;
     manager.unload_plugin(&name)
 }
 
 #[tauri::command]
-async fn scan_plugins_directory(dir: String, state: State<'_, PluginManagerState>) -> Result<usize, String> {
-    let mut manager = state.lock().map_err(|_| "Plugin manager mutex poisoned".to_string())?;
+async fn scan_plugins_directory(
+    dir: String,
+    state: State<'_, PluginManagerState>,
+) -> Result<usize, String> {
+    let mut manager = state
+        .lock()
+        .map_err(|_| "Plugin manager mutex poisoned".to_string())?;
     Ok(manager.scan_directory(std::path::Path::new(&dir)))
 }
 
 #[tauri::command]
 async fn pgp_get_key_info(app_handle: AppHandle) -> Result<crate::pgp::PgpKeyInfo, String> {
-    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
     let (_, _, info) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))?;
     Ok(info)
 }
 
 #[tauri::command]
-async fn pgp_generate_new_key(app_handle: AppHandle, user_id: String) -> Result<crate::pgp::PgpKeyInfo, String> {
-    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    let (priv_path, pub_path) = crate::pgp::PgpKeyManager::get_default_keypair_paths(Some(&app_dir));
+async fn pgp_generate_new_key(
+    app_handle: AppHandle,
+    user_id: String,
+) -> Result<crate::pgp::PgpKeyInfo, String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let (priv_path, pub_path) =
+        crate::pgp::PgpKeyManager::get_default_keypair_paths(Some(&app_dir));
     let (priv_pem, pub_pem, info) = crate::pgp::PgpKeyManager::generate_keypair(&user_id)?;
     crate::pgp::PgpKeyManager::save_keypair(&priv_path, &pub_path, &priv_pem, &pub_pem)?;
     Ok(info)
 }
 
 #[tauri::command]
-async fn pgp_verify_manifest(app_handle: AppHandle, manifest_path: String, sig_path: String, pub_key_pem: Option<String>) -> Result<crate::pgp::PgpVerificationReport, String> {
+async fn pgp_verify_manifest(
+    app_handle: AppHandle,
+    manifest_path: String,
+    sig_path: String,
+    pub_key_pem: Option<String>,
+) -> Result<crate::pgp::PgpVerificationReport, String> {
     let pub_pem = match pub_key_pem {
         Some(pem) if !pem.trim().is_empty() => pem,
         _ => {
-            let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-            let (_, pub_pem, _) = crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))?;
+            let app_dir = app_handle
+                .path()
+                .app_data_dir()
+                .map_err(|e| e.to_string())?;
+            let (_, pub_pem, _) =
+                crate::pgp::PgpKeyManager::load_or_generate_default(Some(&app_dir))?;
             pub_pem
         }
     };
-    crate::pgp::PgpManifestVerifier::verify_file(std::path::Path::new(&manifest_path), std::path::Path::new(&sig_path), &pub_pem)
+    crate::pgp::PgpManifestVerifier::verify_file(
+        std::path::Path::new(&manifest_path),
+        std::path::Path::new(&sig_path),
+        &pub_pem,
+    )
 }
 
 #[tauri::command]
-async fn inspect_volume_encryption(path: String) -> Result<crate::encryption::EncryptionReport, String> {
+async fn inspect_volume_encryption(
+    path: String,
+) -> Result<crate::encryption::EncryptionReport, String> {
     crate::encryption::inspect_device_encryption(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn extract_memory_keys(ram_dump_path: String, enc_type: Option<String>) -> Result<Vec<crate::encryption::ExtractedKey>, String> {
+async fn extract_memory_keys(
+    ram_dump_path: String,
+    enc_type: Option<String>,
+) -> Result<Vec<crate::encryption::ExtractedKey>, String> {
     let target = enc_type.and_then(|t| match t.as_str() {
         "BitLocker" => Some(crate::encryption::EncryptionType::BitLocker),
         "LUKS" => Some(crate::encryption::EncryptionType::Luks1),
@@ -1249,11 +1576,25 @@ async fn extract_memory_keys(ram_dump_path: String, enc_type: Option<String>) ->
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_cli = args.iter().any(|arg| {
-        arg == "--cli" || arg == "cli" || arg == "acquire" || arg == "image" || arg == "triage" ||
-        arg == "list-devices" || arg == "devices" || arg == "list-volumes" || arg == "volumes" ||
-        arg == "live" || arg == "ram" || arg == "volatility" || arg == "pgp-keygen" ||
-        arg == "pgp-sign" || arg == "pgp-verify" || arg == "--help" || arg == "-h" ||
-        arg == "--version" || arg == "-V"
+        arg == "--cli"
+            || arg == "cli"
+            || arg == "acquire"
+            || arg == "image"
+            || arg == "triage"
+            || arg == "list-devices"
+            || arg == "devices"
+            || arg == "list-volumes"
+            || arg == "volumes"
+            || arg == "live"
+            || arg == "ram"
+            || arg == "volatility"
+            || arg == "pgp-keygen"
+            || arg == "pgp-sign"
+            || arg == "pgp-verify"
+            || arg == "--help"
+            || arg == "-h"
+            || arg == "--version"
+            || arg == "-V"
     });
 
     if is_cli && args.len() > 1 {
@@ -1311,4 +1652,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

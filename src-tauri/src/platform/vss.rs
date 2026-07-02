@@ -2,7 +2,7 @@
 //! Creates a frozen snapshot of a volume so we can image it consistently
 //! while the system is running.
 
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use std::process::Command;
 
 /// Represents an active VSS shadow copy snapshot.
@@ -54,7 +54,7 @@ impl VssSnapshot {
             let ps_out = Command::new("powershell")
                 .args(["-NoProfile", "-Command", &ps_cmd])
                 .output()
-                .map_err(|e| ForgelensError::VssError(format!("Failed to execute PowerShell VSS fallback: {}", e)))?;
+                .map_err(|e| OpenForensicError::VssError(format!("Failed to execute PowerShell VSS fallback: {}", e)))?;
 
             if ps_out.status.success() {
                 let stdout = String::from_utf8_lossy(&ps_out.stdout);
@@ -64,11 +64,11 @@ impl VssSnapshot {
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&ps_out.stderr);
-                return Err(ForgelensError::VssError(format!("WMI and PowerShell VSS creation failed. PowerShell error: {}", stderr.trim())));
+                return Err(OpenForensicError::VssError(format!("WMI and PowerShell VSS creation failed. PowerShell error: {}", stderr.trim())));
             }
         }
 
-        let shadow_id = shadow_id.ok_or_else(|| ForgelensError::VssError(
+        let shadow_id = shadow_id.ok_or_else(|| OpenForensicError::VssError(
             "Could not parse ShadowID from VSS creation output".to_string()
         ))?;
 
@@ -110,7 +110,7 @@ impl VssSnapshot {
         let output = Command::new("vssadmin")
             .args(["list", "shadows"])
             .output()
-            .map_err(|e| ForgelensError::VssError(format!("Failed to run vssadmin list shadows: {}", e)))?;
+            .map_err(|e| OpenForensicError::VssError(format!("Failed to run vssadmin list shadows: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -175,8 +175,8 @@ impl VssSnapshot {
         let ps_out = Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
             .output()
-            .map_err(|e| ForgelensError::VssError(format!("Failed to run PowerShell Get-CimInstance: {}", e)))?;
-            
+            .map_err(|e| OpenForensicError::VssError(format!("Failed to run PowerShell Get-CimInstance: {}", e)))?;
+
         if ps_out.status.success() {
             let stdout = String::from_utf8_lossy(&ps_out.stdout);
             let device_object = stdout.trim();
@@ -185,7 +185,7 @@ impl VssSnapshot {
             }
         }
 
-        Err(ForgelensError::VssError(format!(
+        Err(OpenForensicError::VssError(format!(
             "Could not find device path for shadow copy ID: {}",
             shadow_id
         )))
@@ -196,11 +196,11 @@ impl VssSnapshot {
         let output = Command::new("vssadmin")
             .args(["delete", "shadows", &format!("/Shadow={}", self.shadow_id), "/Quiet"])
             .output()
-            .map_err(|e| ForgelensError::VssError(format!("Failed to delete shadow copy: {}", e)))?;
+            .map_err(|e| OpenForensicError::VssError(format!("Failed to delete shadow copy: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(ForgelensError::VssError(format!(
+            return Err(OpenForensicError::VssError(format!(
                 "vssadmin delete shadows failed: {}",
                 stderr.trim()
             )));

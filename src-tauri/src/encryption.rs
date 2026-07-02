@@ -2,7 +2,7 @@
 //! Detects BitLocker, LUKS, Apple FileVault, and Android FBE (File-Based Encryption) volumes during acquisition.
 //! Extracts volume master keys (VMK / Master Keys / Gatekeeper CE keys) from RAM dumps where possible.
 
-use crate::error::{ForgelensError, Result};
+use crate::error::{OpenForensicError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
@@ -156,7 +156,7 @@ pub fn inspect_device_encryption(path: &str) -> Result<EncryptionReport> {
 /// Scan a physical RAM dump (.raw / .dmp / .vmem) to extract volume master keys (VMK / LUKS / Gatekeeper keys).
 /// NOTE: Disabled and moved to post-acquisition Analysis Suite per architectural separation of capture vs. analysis.
 pub fn extract_keys_from_ram(_ram_dump_path: &str, _target_type: Option<EncryptionType>) -> Result<Vec<ExtractedKey>> {
-    Err(ForgelensError::Backend(
+    Err(OpenForensicError::Backend(
         "Master-key extraction from RAM dumps is disabled during live capture. Please move acquired dumps to the post-acquisition Analysis Suite.".to_string(),
     ))
 }
