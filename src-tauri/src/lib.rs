@@ -19,5 +19,6 @@ pub mod plugins;
 pub mod siem;
 pub mod cli;
 pub mod pgp;
+pub mod encryption;
 
 pub use state::{ActiveTaskState, clear_active_task};

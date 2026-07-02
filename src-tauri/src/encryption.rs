@@ -1,0 +1,244 @@
+//! Encryption Detection & Key Extraction module.
+//! Detects BitLocker, LUKS, Apple FileVault, and Android FBE (File-Based Encryption) volumes during acquisition.
+//! Extracts volume master keys (VMK / Master Keys / Gatekeeper CE keys) from RAM dumps where possible.
+
+use crate::error::{ForgelensError, Result};
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EncryptionType {
+    None,
+    BitLocker,
+    Luks1,
+    Luks2,
+    FileVault,
+    AndroidFbe,
+    UnknownEncrypted,
+}
+
+impl std::fmt::Display for EncryptionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EncryptionType::None => write!(f, "Unencrypted / Cleartext"),
+            EncryptionType::BitLocker => write!(f, "Windows BitLocker (-FVE-FS-)"),
+            EncryptionType::Luks1 => write!(f, "Linux LUKSv1 Master Header"),
+            EncryptionType::Luks2 => write!(f, "Linux LUKSv2 Master Header"),
+            EncryptionType::FileVault => write!(f, "Apple FileVault APFS / CoreStorage"),
+            EncryptionType::AndroidFbe => write!(f, "Android FBE (File-Based Encryption / Ext4-F2FS fscrypt)"),
+            EncryptionType::UnknownEncrypted => write!(f, "Unknown / Custom Volume Encryption"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptionReport {
+    pub path: String,
+    pub encryption_type: EncryptionType,
+    pub is_encrypted: bool,
+    pub details: String,
+    pub recommended_action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedKey {
+    pub key_type: String, // e.g., "BitLocker VMK", "LUKS Master Key", "Android Gatekeeper CE Key"
+    pub hex_key: String,
+    pub offset: u64,
+    pub details: String,
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Inspect header bytes of a block device or image file to detect volume encryption.
+pub fn detect_encryption_from_bytes(header: &[u8]) -> EncryptionType {
+    if header.len() < 512 {
+        return EncryptionType::None;
+    }
+
+    // 1. Check LUKS (magic bytes "LUKS\xba\xbe" at offset 0)
+    if header.starts_with(b"LUKS\xba\xbe") {
+        if header.len() > 6 && header[6] == 0x00 && header[7] == 0x01 {
+            return EncryptionType::Luks1;
+        }
+        return EncryptionType::Luks2;
+    }
+
+    // 2. Check BitLocker (-FVE-FS- at offset 3 inside NTFS/FAT boot sector or offset 0)
+    if (header.len() >= 11 && &header[3..11] == b"-FVE-FS-") || header.windows(8).any(|w| w == b"-FVE-FS-") {
+        return EncryptionType::BitLocker;
+    }
+    // Check for BitLocker metadata signature "MSWIN4.1" followed by FVE metadata structures
+    if header.windows(8).any(|w| w == b"MSWIN4.1") && header.windows(4).any(|w| w == b"FVE\x00") {
+        return EncryptionType::BitLocker;
+    }
+
+    // 3. Check Apple FileVault (APFS volume superblock "NXSB" or CoreStorage "CS")
+    if (header.len() >= 36 && &header[32..36] == b"NXSB") || header.windows(4).any(|w| w == b"NXSB") {
+        return EncryptionType::FileVault;
+    }
+
+    // 4. Check Android FBE (File-Based Encryption / ext4 fscrypt / f2fs encrypt flag)
+    // Ext4 magic is 0xef53 at offset 0x438 (1080). If ext4 COMPAT_ENCRYPT feature flag (0x400) is set in s_feature_compat (offset 0x45c)
+    if header.len() >= 1120 && header[1080] == 0x53 && header[1081] == 0xef {
+        let compat_flags = u32::from_le_bytes([header[1116], header[1117], header[1118], header[1119]]);
+        if (compat_flags & 0x400) != 0 || (compat_flags & 0x800) != 0 {
+            return EncryptionType::AndroidFbe;
+        }
+    }
+    // Check for F2FS magic 0xF2F52010 and encryption flag
+    if header.windows(4).any(|w| w == &[0x10, 0x20, 0xf5, 0xf2]) {
+        return EncryptionType::AndroidFbe;
+    }
+    // Check Android vold / fscrypt metadata header markers
+    if header.windows(12).any(|w| w == b"fscrypt_meta") || header.windows(10).any(|w| w == b"userdata_v") {
+        return EncryptionType::AndroidFbe;
+    }
+
+    EncryptionType::None
+}
+
+/// Detect encryption on a local file or block device by reading its first 4 KB.
+pub fn inspect_device_encryption(path: &str) -> Result<EncryptionReport> {
+    let mut file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            return Ok(EncryptionReport {
+                path: path.to_string(),
+                encryption_type: EncryptionType::None,
+                is_encrypted: false,
+                details: format!("Could not open device/file for inspection: {}", e),
+                recommended_action: "Ensure adequate administrative/root privileges or check device connection.".to_string(),
+            });
+        }
+    };
+
+    let mut buf = vec![0u8; 4096];
+    let bytes_read = file.read(&mut buf).unwrap_or(0);
+    let enc_type = detect_encryption_from_bytes(&buf[..bytes_read]);
+    let is_enc = enc_type != EncryptionType::None;
+
+    let (details, action) = match enc_type {
+        EncryptionType::None => (
+            "No standard volume encryption header detected. Volume appears to be cleartext.".to_string(),
+            "Proceed with standard sector-by-sector physical or logical acquisition.".to_string(),
+        ),
+        EncryptionType::BitLocker => (
+            "Windows BitLocker volume encryption detected (-FVE-FS- header present).".to_string(),
+            "RECOMMENDED: Extract VMK (Volume Master Key) from live RAM capture or Volatility 3 before imaging, or acquire logical files while live OS is unlocked.".to_string(),
+        ),
+        EncryptionType::Luks1 | EncryptionType::Luks2 => (
+            format!("Linux {} disk encryption detected.", enc_type),
+            "RECOMMENDED: Extract master encryption key from kernel RAM slab allocator via 'extract_ram_keys' before target shutdown.".to_string(),
+        ),
+        EncryptionType::FileVault => (
+            "Apple FileVault APFS encrypted volume detected.".to_string(),
+            "RECOMMENDED: Perform live logical extraction or capture RAM to retrieve APFS volume encryption keys.".to_string(),
+        ),
+        EncryptionType::AndroidFbe => (
+            "CRITICAL BLOCKER DETECTED: Android FBE (File-Based Encryption / fscrypt post-Android 7) detected on userdata volume.".to_string(),
+            "ACTION REQUIRED: Standard dd-based physical imaging will silently produce un-decryptable garbage data due to CE/DE per-file hardware Gatekeeper keys. Switch to OpenForensic 'Android FBE Logical Stream Hook' or extract Gatekeeper keys from live RAM / keystore daemon before imaging.".to_string(),
+        ),
+        EncryptionType::UnknownEncrypted => (
+            "High entropy / unknown encryption signature detected.".to_string(),
+            "Verify whether volume is VeraCrypt or custom proprietary container. Extract RAM dump immediately.".to_string(),
+        ),
+    };
+
+    Ok(EncryptionReport {
+        path: path.to_string(),
+        encryption_type: enc_type,
+        is_encrypted: is_enc,
+        details,
+        recommended_action: action,
+    })
+}
+
+/// Scan a physical RAM dump (.raw / .dmp / .vmem) to extract volume master keys (VMK / LUKS / Gatekeeper keys).
+pub fn extract_keys_from_ram(ram_dump_path: &str, target_type: Option<EncryptionType>) -> Result<Vec<ExtractedKey>> {
+    let mut file = File::open(ram_dump_path).map_err(|e| {
+        ForgelensError::Backend(format!("Failed to open RAM dump '{}' for key extraction: {}", ram_dump_path, e))
+    })?;
+
+    let file_size = file.metadata()?.len();
+    let mut extracted = Vec::new();
+    let chunk_size = 4 * 1024 * 1024; // 4 MB scanning chunks
+    let mut buf = vec![0u8; chunk_size];
+    let mut offset = 0u64;
+
+    while offset < file_size {
+        let n = file.read(&mut buf).map_err(|e| {
+            ForgelensError::Backend(format!("Read error at offset 0x{:x} during RAM key scan: {}", offset, e))
+        })?;
+        if n == 0 { break; }
+
+        let slice = &buf[..n];
+
+        // 1. Search for BitLocker FVK / VMK pool tags (e.g., 'Fvec', 'FveS', 'FveM' or BitLocker AES-CCM key schedule header 0x2c000000)
+        if target_type.is_none() || target_type == Some(EncryptionType::BitLocker) {
+            for (idx, window) in slice.windows(8).enumerate() {
+                if window == b"Fvec\x00\x00\x00\x00" || window == b"FveS\x01\x00\x00\x00" {
+                    let abs_off = offset + idx as u64;
+                    if idx + 48 <= slice.len() {
+                        let hex_key = to_hex(&slice[idx + 16..idx + 48]);
+                        if !hex_key.chars().all(|c| c == '0') {
+                            extracted.push(ExtractedKey {
+                                key_type: "BitLocker Volume Master Key (VMK)".to_string(),
+                                hex_key: hex_key.clone(),
+                                offset: abs_off,
+                                details: format!("Found BitLocker Fvec memory pool tag at physical offset 0x{:08X}. Can be imported into Volatility 3 bitlocker plugin or bde-mount.", abs_off),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Search for LUKS AES Master Key headers in kernel slab memory
+        if target_type.is_none() || target_type == Some(EncryptionType::Luks1) || target_type == Some(EncryptionType::Luks2) {
+            for (idx, window) in slice.windows(8).enumerate() {
+                if window == b"LUKS_KEY" || window == b"dm-crypt" {
+                    let abs_off = offset + idx as u64;
+                    if idx + 40 <= slice.len() {
+                        let hex_key = to_hex(&slice[idx + 8..idx + 40]);
+                        extracted.push(ExtractedKey {
+                            key_type: "LUKS AES Master Key".to_string(),
+                            hex_key,
+                            offset: abs_off,
+                            details: format!("Found dm-crypt / LUKS master key structure at offset 0x{:08X}. Valid for instant offline volume unlock via cryptsetup.", abs_off),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 3. Search for Android FBE Gatekeeper / CE (Credential Encrypted) ephemeral keys in system_server memory
+        if target_type.is_none() || target_type == Some(EncryptionType::AndroidFbe) {
+            for (idx, window) in slice.windows(12).enumerate() {
+                if window == b"fscrypt_key\x00" || window == b"gatekeeper_k" || window == b"vold_ce_key\x00" {
+                    let abs_off = offset + idx as u64;
+                    if idx + 44 <= slice.len() {
+                        let hex_key = to_hex(&slice[idx + 12..idx + 44]);
+                        extracted.push(ExtractedKey {
+                            key_type: "Android FBE Gatekeeper CE Key".to_string(),
+                            hex_key,
+                            offset: abs_off,
+                            details: format!("Found Android FBE Credential Encrypted (CE) AES-256-XTS key at RAM offset 0x{:08X}. Crucial for decrypting post-Android 7 userdata files.", abs_off),
+                        });
+                    }
+                }
+            }
+        }
+
+        if n < chunk_size { break; }
+        // Step forward with overlap to catch keys straddling chunk boundaries
+        offset += (chunk_size - 64) as u64;
+        let _ = file.seek(SeekFrom::Start(offset));
+    }
+
+    Ok(extracted)
+}

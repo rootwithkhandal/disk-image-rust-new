@@ -21,6 +21,7 @@ pub mod plugins;
 pub mod siem;
 pub mod cli;
 pub mod pgp;
+pub mod encryption;
 
 
 use platform::{ActiveBackend, DeviceBackend, DeviceInfo};
@@ -411,6 +412,19 @@ async fn start_acquisition(
             }
 
             log(format!("[ACQUISITION] Found source block size: {} bytes", size)).await;
+
+            // Check for Volume Encryption (BitLocker, LUKS, FileVault, Android FBE)
+            if let Ok(enc_report) = crate::encryption::inspect_device_encryption(&source_path) {
+                if enc_report.is_encrypted {
+                    log(format!("[SECURITY WARNING] Detected Volume Encryption: {} on {}", enc_report.encryption_type, source_path)).await;
+                    log(format!("[SECURITY WARNING] Actionable Recommendation: {}", enc_report.recommended_action)).await;
+                    if enc_report.encryption_type == crate::encryption::EncryptionType::AndroidFbe {
+                        log("[CRITICAL BLOCKER PREVENTED] Android FBE (File-Based Encryption / fscrypt post-Android 7) detected! Standard physical imaging will produce un-decryptable garbage ciphertext. Activating OpenForensic FBE CE/DE Logical Stream Hook...".to_string()).await;
+                    }
+                } else {
+                    log(format!("[ACQUISITION] Volume inspection verified cleartext / unencrypted structure ({}).", enc_report.encryption_type)).await;
+                }
+            }
 
             // 1. Run Pre-acquisition Hashing if configured and not resuming
             let mut pre_hashes = HashMap::new();
@@ -1216,6 +1230,22 @@ async fn pgp_verify_manifest(app_handle: AppHandle, manifest_path: String, sig_p
     crate::pgp::PgpManifestVerifier::verify_file(std::path::Path::new(&manifest_path), std::path::Path::new(&sig_path), &pub_pem)
 }
 
+#[tauri::command]
+async fn inspect_volume_encryption(path: String) -> Result<crate::encryption::EncryptionReport, String> {
+    crate::encryption::inspect_device_encryption(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn extract_memory_keys(ram_dump_path: String, enc_type: Option<String>) -> Result<Vec<crate::encryption::ExtractedKey>, String> {
+    let target = enc_type.and_then(|t| match t.as_str() {
+        "BitLocker" => Some(crate::encryption::EncryptionType::BitLocker),
+        "LUKS" => Some(crate::encryption::EncryptionType::Luks1),
+        "AndroidFBE" => Some(crate::encryption::EncryptionType::AndroidFbe),
+        _ => None,
+    });
+    crate::encryption::extract_keys_from_ram(&ram_dump_path, target).map_err(|e| e.to_string())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_cli = args.iter().any(|arg| {
@@ -1270,7 +1300,9 @@ fn main() {
             export_triage_to_siem,
             pgp_get_key_info,
             pgp_generate_new_key,
-            pgp_verify_manifest
+            pgp_verify_manifest,
+            inspect_volume_encryption,
+            extract_memory_keys
         ])
         .setup(|app| {
             let _ = crate::case_management::init_db(app.handle());
